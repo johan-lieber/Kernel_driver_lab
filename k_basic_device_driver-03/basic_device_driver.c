@@ -7,6 +7,9 @@
 
 
 
+
+ssize_t my_write(struct file *filp , const char __user *buf , size_t len , loff_t *offset ) ;
+
 struct file_operations fops ={
 .owner = THIS_MODULE,
 .read = NULL ,
@@ -22,7 +25,7 @@ struct class *myclass ;
 struct device *mydevice ; 
 
 
-#define char  BUFF_SIZE  =  1024 
+#define  BUFF_SIZE 1024 
 
 static  char device_buffer[BUFF_SIZE] ; 
 
@@ -79,7 +82,8 @@ ssize_t my_write(struct file *filp , const char __user *buf , size_t len , loff_
 
 	device_buffer[safe_len] = '\0' ; 
 
-	printk(KERN_INFO " MESSAGE : %s \n " , device_buffer) ; 
+	printk(KERN_INFO " MESSAGE : %s \n " , device_buffer) ;
+       return to_copy;  	
 }
 
 
