@@ -5,29 +5,36 @@
 #include <linux/cdev.h>
 #include <linux/device.h>
 
+// function initialization
 
-
-
+int my_open(struct inode *inode , struct file *file ) ; 
+int my_release(struct inode *inode , struct file *file) ;
+ssize_t my_read ( struct file *filp , char __user *buf , size_t len , loff_t *offset) ;
 ssize_t my_write(struct file *filp , const char __user *buf , size_t len , loff_t *offset ) ;
 
 struct file_operations fops ={
 .owner = THIS_MODULE,
-.read = NULL ,
+.read = my_read ,
 .write = my_write,
-.open = NULL ,
-.release = NULL 
+.open = my_open ,
+.release = my_release 
 };
 
 
+
+// Varivale intitializations 
 dev_t dev ; 
 struct cdev mycdev ;
 struct class *myclass ;
 struct device *mydevice ; 
 
 
+// buffer size initialization 
+//
 #define  BUFF_SIZE 1024 
-
 static  char device_buffer[BUFF_SIZE] ; 
+
+
 
 
 static int __init hello_init(void)
@@ -60,6 +67,9 @@ static int __init hello_init(void)
 
 
 
+
+
+// Writing function ... 
 ssize_t my_write(struct file *filp , const char __user *buf , size_t len , loff_t *offset ) 
 {
 	size_t to_copy ; 
@@ -83,10 +93,64 @@ ssize_t my_write(struct file *filp , const char __user *buf , size_t len , loff_
 	device_buffer[safe_len] = '\0' ; 
 
 	printk(KERN_INFO " MESSAGE : %s \n " , device_buffer) ;
-       return to_copy;  	
+
+       return to_copy;
+              
 }
 
 
+
+
+// Reading function ... `
+ssize_t my_read(struct file *filp , char __user *buf , size_t len , loff_t *offset)  
+{
+	size_t   length =  strlen(device_buffer) ;
+  
+   	if(*offset >= length ) 
+ 	{
+ 	return 0 ;
+ 	}	
+
+        device_buffer[length] = '\0' ; 
+
+	if(copy_to_user( buf , device_buffer , length) !=0) 
+	{
+		return -EFAULT ;
+	}
+	*offset += length ; 
+
+
+	printk(KERN_INFO " Reading  functins begins \n");
+       	printk(KERN_INFO "  Here is : %s \n",device_buffer ) ;	
+
+	printk(KERN_INFO " BYE FROM READ FUNCTION \n");
+	return  length  ; 
+
+}
+
+
+
+
+// Myopen function
+ int my_open ( struct inode *inode , struct file *file) 
+{
+	printk(KERN_INFO "  hello from open function\n") ; 
+	return 0 ; 
+} 
+
+
+
+
+//  my_release function 
+int my_release(struct inode *inode , struct file *file) 
+{
+	printk(KERN_INFO " Hullu from release function \n ");
+	return 0 ; 
+} 
+
+
+
+// module exit funnction  
 static void __exit hello_exit(void)
 {
 	device_destroy(myclass , dev ) ;
@@ -98,6 +162,8 @@ static void __exit hello_exit(void)
 	printk(KERN_INFO "bye - from - kernel \n");
 	return ;
 }
+
+
 
 MODULE_LICENSE("GPL");
 module_init(hello_init);
