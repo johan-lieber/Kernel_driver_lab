@@ -99,7 +99,7 @@ static int __init hello_init(void)
 	}
 
 
-	proc_create("x_procfs",0666 , parent , &proc_fops) ;
+	proc_create("x_status",0666 , parent , &proc_fops) ;
 
 
 	
@@ -228,8 +228,13 @@ static int my_release(struct inode *inode , struct file *file)
 // proc_write function
 static ssize_t proc_write(struct file *filp ,  const char __user *buf , size_t len , loff_t *offset)
 {
+	if(proc_buffer = !=NULL) 
+	{
+		kfree(proc_buffer) ; 
+	}
 
-	proc_buffer = kmalloc(len ,GFP_KERNEL); 
+
+	proc_buffer = kmalloc((len+1)  ,GFP_KERNEL); 
 	if(proc_buffer == NULL) 
 	{
 		pr_err("ALLOC_MEM_ERR");
@@ -242,7 +247,7 @@ static ssize_t proc_write(struct file *filp ,  const char __user *buf , size_t l
 		return -EFAULT ;
 	}
 
-	proc_buffer[len] = '\0'; 
+	proc_buffer[len+1] = '\0'; 
 
 	pr_info("PRO_WRITE :%s  \n", proc_buffer);
 	return len ; 
