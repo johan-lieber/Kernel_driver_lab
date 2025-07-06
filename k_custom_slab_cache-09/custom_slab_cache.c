@@ -34,9 +34,9 @@ struct file_operations fops ={
 };
 
 /* custom struct */ 
-static struct  custom_struct = {
+struct  custom_struct {
 	int age ;
-	float marks ; 
+	int  marks ; 
 	int id ; 
 }; 
 
@@ -65,6 +65,10 @@ static int __init hello_init(void)
 	myclass = class_create("mychardev");
 	mydevice  = device_create(myclass, NULL , dev , NULL , "mychardev");
 
+	/* using custom slab cache  allocations  */
+	mycache = kmem_cache_create("mycache" , sizeof(struct custom_struct) , __alignof__(struct custom_struct) , SLAB_HWCACHE_ALIGN, NULL );
+
+
 	
 	printk(KERN_INFO " DRIVER - LOADED \n");
 	return 0 ; 
@@ -76,6 +80,7 @@ static int __init hello_init(void)
 /*` module exit funnction */  
 static void __exit hello_exit(void)
 {
+	kmem_cache_destroy(mycache) ;
 	device_destroy(myclass , dev ) ;
 	class_destroy(myclass);
 	cdev_del(&mycdev);
@@ -115,11 +120,8 @@ ssize_t my_write(struct file *filp , const char __user *buf , size_t len , loff_
 
 	printk(KERN_INFO " MESSAGE : %s \n " , device_buffer) ;
 
-	/* using custom slab cache  allocations  */
-	mycache = kmem_cache_create("mycache" , sizeof(struct custom_struct) , __alignof__(struct custom_struct) , SLAB_HWCACHE_ALIGN, NULL );
-
-
- 	  struct  custom_struct   *ptr = 	kmem_cache_alloc(mycache , GFP_KERNEL);
+	/*  allocating memory from custom slab cache  */
+	struct  custom_struct   *ptr = 	kmem_cache_alloc(mycache , GFP_KERNEL);
 	
 	if(ptr == NULL ) 
 	{
@@ -127,17 +129,16 @@ ssize_t my_write(struct file *filp , const char __user *buf , size_t len , loff_
 	}
 
 	ptr->age = 23 ; 
-	ptr->marks = 66.6 ;
+	ptr->marks = 66 ;
 	ptr->id =  63 ; 
 
 
 
-	pr_info(" Age : %d\n", ptr->age); 
-	pr_info(" marks : %f \n", ptr->marks) ;
+	printk(KERN_INFO " Age : %d\n", ptr->age); 
+	printk(KERN_INFO" marks : %d \n", ptr->marks) ;
 	pr_info(" id : %d \n ",  ptr->id ) ; 
 
-	kmem_cache_free(mycache , ptr->) ; 
-	kmem_cache_destroy(mycache) ;
+	kmem_cache_free(mycache , ptr) ; 
 
        return to_copy;
               
@@ -189,7 +190,7 @@ ssize_t my_read(struct file *filp , char __user *buf , size_t len , loff_t *offs
 //  my_release function 
 int my_release(struct inode *inode , struct file *file) 
 {
-	printk(KERN_INFO " Hullu from release function \n ");
+	printk(KERN_INFO " HELLO from release function \n ");
 	return 0 ; 
 } 
 
