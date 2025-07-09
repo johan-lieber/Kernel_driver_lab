@@ -228,7 +228,7 @@ static int my_release(struct inode *inode , struct file *file)
 // proc_write function
 static ssize_t proc_write(struct file *filp ,  const char __user *buf , size_t len , loff_t *offset)
 {
-	if(proc_buffer = !=NULL) 
+	if(proc_buffer  !=NULL) 
 	{
 		kfree(proc_buffer) ; 
 	}
