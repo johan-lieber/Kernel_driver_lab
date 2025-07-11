@@ -32,7 +32,6 @@ static struct task_struct *kthread;
 static char device_buffer[BUFF_SIZE];
 static struct proc_dir_entry *parent ; 
 static struct mutex   mutex_ref;
-static char *proc_buffer   = NULL ; 
 
 
 /******************************** DRIVER FUNCTION PROTOTYPE *********************** */ 
@@ -120,7 +119,8 @@ static int proc_release(struct inode *inode , struct file *filp)
 static ssize_t  proc_write(struct file *filp, const char __user *buf , size_t len , loff_t *offset) 
 {
 	
- 	proc_buffer = kmalloc((len  +1 ), GFP_KERNEL) ; 
+ 	 char *proc_buffer = kmalloc((len  +1 ), GFP_KERNEL) ; 
+
 	if(proc_buffer == NULL )
 	{
 		return -ENOMEM;
@@ -136,7 +136,7 @@ static ssize_t  proc_write(struct file *filp, const char __user *buf , size_t le
 	pr_info("PROC_FS WRITE  :%s \n", proc_buffer);
 
 	kfree(proc_buffer) ; 	
-
+	proc_buffer = NULL; 
 	return len  ;
 } 
 
