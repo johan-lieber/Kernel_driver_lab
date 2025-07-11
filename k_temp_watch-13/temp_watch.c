@@ -120,7 +120,7 @@ static int proc_release(struct inode *inode , struct file *filp)
 static ssize_t  proc_write(struct file *filp, const char __user *buf , size_t len , loff_t *offset) 
 {
 	
- 	proc_buffer = kmalloc(len , GFP_KERNEL) ; 
+ 	proc_buffer = kmalloc((len  +1 ), GFP_KERNEL) ; 
 	if(proc_buffer == NULL )
 	{
 		return -ENOMEM;
@@ -137,7 +137,7 @@ static ssize_t  proc_write(struct file *filp, const char __user *buf , size_t le
 
 	kfree(proc_buffer) ; 	
 
-	return 0 ;
+	return len  ;
 } 
 
 
