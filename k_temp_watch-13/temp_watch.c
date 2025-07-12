@@ -20,6 +20,7 @@ DECLARE_WAIT_QUEUE_HEAD(wq);
 // Varivale intitializations 
 
 dev_t dev ;
+static int threshold_value = 75  ; 
 static int temperature = 0; 
 uint32_t wait_flag = 0 ; 
 static struct cdev mycdev ;
@@ -48,12 +49,21 @@ static ssize_t my_write(struct file *filp , const char __user *buf , size_t len 
 
 static int proc_open(struct inode *inode , struct file *filp ) ; 
 static int proc_release(struct inode *inode , struct file *filp) ;
-static ssize_t proc_read ( struct file *filp , char __user *buf , size_t len , loff_t *offset) ;
-static ssize_t proc_write(struct file *filp , const char __user *buf , size_t len , loff_t *offset ) ;
+
+static ssize_t wait_read(struct file *filp , char __user *buf , size_t len , loff_t *offset) ;
+static ssize_t wait_write(struct file *filp , const char __user *buf , size_t len , loff_t *offset ) ;
+
+static ssize_t threshold_read ( struct file *filp , char __user *buf , size_t len , loff_t *offset) ;
+static ssize_t threshold_write(struct file *filp , const char __user *buf , size_t len , loff_t *offset ) ;
+
+
+static ssize_t value_read ( struct file *filp , char __user *buf , size_t len , loff_t *offset) ;
+static ssize_t value_write(struct file *filp , const char __user *buf , size_t len , loff_t *offset ) ;
 
 
 
-/* file operations strut  */
+
+/* file operations for driver    */
 
 static struct file_operations fops ={
 .owner = THIS_MODULE,
@@ -64,14 +74,31 @@ static struct file_operations fops ={
 };
 
 
-/*  proc_fs file operations struct */ 
+/*   file operation for wait procfs   */ 
  
-static struct  proc_ops proc_fops = {
-	.proc_open = proc_open ,
-	.proc_write = proc_write,
-	.proc_read =proc_read, 
-	.proc_release = proc_release 
+static const  struct  proc_ops wait_fops  = {
+	.proc_write = wait_write ,
+	.proc_read = wait_read ,
+       .proc_release = proc_release , 
+	.proc_open = proc_open
 }; 
+
+
+/* file operation for threshold procfs    */ 
+static const struct  proc_ops  threshold_fops = {
+	.proc_write =  threshold_write ,
+	.proc_read  =  threshold_read ,  
+}; 
+
+
+/* file operation for value  procfs   */ 
+static  const struct   proc_ops  value_fops = {
+	.proc_write =  value_write ,
+	.proc_read  =  value_read ,  
+}; 
+
+
+
 
 
 /***************************** THREAD FUNCTIONS ***************************/ 
@@ -83,15 +110,14 @@ static int thread_function ( void *data )
 	{
 		pr_info(" --WAITING FOR EVENT -- \n");
 		temperature = get_random_u32() % 100;
-	       if(temperature > 75  ) 
+	       if(temperature >  threshold_value   ) 
 	       {
 		        pr_info(" calling \n");
 			wait_flag = 2 ;
 			wake_up_interruptible(&wq); 
 	       }
 
-		pr_info(" TEMP :%d\n", temperature);
-		temperature = 0 ; 
+		pr_info(" TEMP :%d && THRESHOLD :%d \n", temperature, threshold_value);
 		msleep(2000); 
 	} 
 	return 0 ;
@@ -115,47 +141,66 @@ static int proc_release(struct inode *inode , struct file *filp)
 
 
 
+/***************************************** THRESHOLD PROCFS FUNCTIONS **********************************/ 
 
-static ssize_t  proc_write(struct file *filp, const char __user *buf , size_t len , loff_t *offset) 
+static ssize_t  threshold_write(struct file *filp, const char __user *buf , size_t len , loff_t *offset) 
 {
 
-	if(len >PAGE_SIZE ) 
+	char kbuf[32] ; 
+
+
+	if(len  >= sizeof(kbuf)) 
 	{
 		return -EINVAL ;
 	}
 
-	pr_info("hello 1 \n") ;
 
- 	char *proc_buffer = kmalloc((len  +1 ), GFP_KERNEL) ; 
-
-	if(proc_buffer == NULL )
+	if(copy_from_user(kbuf  , buf, len)!=0)
 	{
-		return -ENOMEM;
-	}
-
-	pr_info("hello 2 \n") ;
-	if(copy_from_user(proc_buffer , buf, len)!=0)
-	{
-		kfree(proc_buffer) ;
 		return -EFAULT ;
 	}
-	proc_buffer[len] = '\0'; 
 
-	pr_info("hello 3 \n") ;
 
-	pr_info("PROC_FS WRITE  :%s \n", proc_buffer);
+	kbuf[len] = '\0'; 
 
-	kfree(proc_buffer) ; 	
-	pr_info("hello 4 \n") ;
+
+
+	int value ; 
+
+	if(kstrtoint(kbuf , 10 , &value) <0) 
+	{
+		return -EINVAL ;
+	} 
+
+	pr_info(" THRESHOLD SET TO:%d \n", value );
+
+	threshold_value = value ; 
+
 	return len  ;
 } 
 
 
-static ssize_t proc_read(struct file *filp , char __user *buf , size_t len , loff_t *offset ) 
-{
-	int temp_buffer =   33 ;  
 
-	size_t length = sizeof(temp_buffer) ; 
+static ssize_t threshold_read(struct file *filp , char __user *buf , size_t len , loff_t *offset ) 
+{
+	return -EPERM ;
+
+}
+
+
+
+
+/********************************** WAIT PROCFS  FUNCTIONS ****************************************/ 
+
+static ssize_t  wait_read(struct file *filp , char __user *buf , size_t len , loff_t *offset ) 
+{
+	char kbuf[16] ; 
+	int temp_buffer =  44 ;  
+
+
+	int  length  = snprintf(kbuf , sizeof(kbuf) , " %d\n", temp_buffer); 
+
+
 
 
 	if(*offset >= length) 
@@ -163,17 +208,14 @@ static ssize_t proc_read(struct file *filp , char __user *buf , size_t len , lof
 		return 0 ;
 	}
 	 
-	pr_info("PROC_FS READ LOADED  :%d \n", temp_buffer); 
 	
 	wait_event_interruptible(wq ,wait_flag  != 0 );
 
 	if(wait_flag == 2  ) 
 	{
-		pr_info(" wait flag  has been 2 \n"); 
 
-		if(copy_to_user(buf , &temp_buffer ,  length )!=0)
+		if(copy_to_user(buf , kbuf ,  length )!=0)
 		{
-			pr_info(" fault while copying ");
 			return -EFAULT ;
 		}
 	
@@ -185,6 +227,56 @@ static ssize_t proc_read(struct file *filp , char __user *buf , size_t len , lof
 
 	return  length  ; 
 } 
+
+
+static ssize_t  wait_write(struct file *filp , const  char __user *buf , size_t len , loff_t *offset ) 
+{
+	return -EPERM ;
+}
+
+
+
+/*****************************   PROCFS VALUE FUNCTION ********************/ 
+
+static ssize_t  value_read(struct file *filp , char __user *buf , size_t len , loff_t *offset ) 
+{
+	char kbuf[16] ; 
+	
+
+	int temp_buffer =  temperature;
+      		
+
+
+	int  length  = snprintf(kbuf , sizeof(kbuf) , " %d\n", temp_buffer); 
+
+
+
+
+	if(*offset >= length) 
+	{
+		return 0 ;
+	}
+	 
+	
+
+
+	pr_info(" wait flag  has been 2 :%d \n", temperature ); 
+	
+	if(copy_to_user(buf , kbuf ,  length )!=0)
+	{
+		return -EFAULT ;
+	}
+	*offset +=  length  ; 
+
+	return  length  ; 
+} 
+
+
+static ssize_t  value_write(struct file *filp , const  char __user *buf , size_t len , loff_t *offset ) 
+{
+	return -EPERM ;
+}
+
 
 
 
@@ -237,9 +329,9 @@ static int __init hello_init(void)
 	} 
 
 	/* proc_fs file */ 
-	proc_create("wait" , 0666 , parent , &proc_fops);
-//	proc_create("value" , 0666 , parent , &proc_fops ); 
-//	proc_create("threshold", 0666, parent , &proc_fops) ;
+	proc_create("wait" , 0444 , parent , &wait_fops);
+	proc_create("value" , 0444 , parent , &value_fops ); 
+	proc_create("threshold", 0222, parent , &threshold_fops) ;
 
 
 
@@ -276,8 +368,8 @@ static void __exit hello_exit(void)
 
 	kthread_stop(kthread);
 	remove_proc_entry("wait" , parent);
-//	remove_proc_entry("value", parent);
-//	remove_proc_entry("threshold",parent) ;
+	remove_proc_entry("value", parent);
+	remove_proc_entry("threshold",parent) ;
 	proc_remove(parent) ;
 
 	device_destroy(myclass , dev ) ;
