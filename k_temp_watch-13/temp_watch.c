@@ -118,56 +118,70 @@ static int proc_release(struct inode *inode , struct file *filp)
 
 static ssize_t  proc_write(struct file *filp, const char __user *buf , size_t len , loff_t *offset) 
 {
-	
- 	 char *proc_buffer = kmalloc((len  +1 ), GFP_KERNEL) ; 
+
+	if(len >PAGE_SIZE ) 
+	{
+		return -EINVAL ;
+	}
+
+	pr_info("hello 1 \n") ;
+
+ 	char *proc_buffer = kmalloc((len  +1 ), GFP_KERNEL) ; 
 
 	if(proc_buffer == NULL )
 	{
 		return -ENOMEM;
 	}
 
+	pr_info("hello 2 \n") ;
 	if(copy_from_user(proc_buffer , buf, len)!=0)
 	{
+		kfree(proc_buffer) ;
 		return -EFAULT ;
 	}
 	proc_buffer[len] = '\0'; 
 
+	pr_info("hello 3 \n") ;
 
 	pr_info("PROC_FS WRITE  :%s \n", proc_buffer);
 
 	kfree(proc_buffer) ; 	
-	proc_buffer = NULL; 
+	pr_info("hello 4 \n") ;
 	return len  ;
 } 
 
 
 static ssize_t proc_read(struct file *filp , char __user *buf , size_t len , loff_t *offset ) 
 {
+	int temp_buffer =   33 ;  
 
-	char *temp_buffer   = "HelloWorld"; 
+	size_t length = sizeof(temp_buffer) ; 
 
-	size_t length =  strlen(temp_buffer); 
 
 	if(*offset >= length) 
 	{
 		return 0 ;
 	}
 	 
-	pr_info("PROC_FS READ LOADED \n"); 
+	pr_info("PROC_FS READ LOADED  :%d \n", temp_buffer); 
 	
-	wait_event_interruptible(wq ,wait_flag  != 0 ); 
-	pr_info("waoke up alteasst"); 
+	wait_event_interruptible(wq ,wait_flag  != 0 );
+
 	if(wait_flag == 2  ) 
 	{
-		pr_info(" wait flag 2 \n");
-		if(copy_to_user(buf , temp_buffer ,  length )!=0)
+		pr_info(" wait flag  has been 2 \n"); 
+
+		if(copy_to_user(buf , &temp_buffer ,  length )!=0)
 		{
+			pr_info(" fault while copying ");
 			return -EFAULT ;
 		}
+	
 	} 
 
-	*offset +=  length  ; 
+	wait_flag = 0 ; 
 
+	*offset +=  length  ; 
 
 	return  length  ; 
 } 
