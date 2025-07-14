@@ -108,6 +108,7 @@ static int thread_function ( void *data )
 {
 	while (!kthread_should_stop())
 	{
+
 		pr_info(" --WAITING FOR EVENT -- \n");
 		temperature = get_random_u32() % 100;
 	       if(temperature >  threshold_value   ) 
@@ -146,6 +147,9 @@ static int proc_release(struct inode *inode , struct file *filp)
 static ssize_t  threshold_write(struct file *filp, const char __user *buf , size_t len , loff_t *offset) 
 {
 
+	mutex_lock(&mutex_ref) ; 
+
+
 	char kbuf[32] ; 
 
 
@@ -175,6 +179,8 @@ static ssize_t  threshold_write(struct file *filp, const char __user *buf , size
 	pr_info(" THRESHOLD SET TO:%d \n", value );
 
 	threshold_value = value ; 
+
+	mutex_unlock(&mutex_ref) ; 
 
 	return len  ;
 } 
