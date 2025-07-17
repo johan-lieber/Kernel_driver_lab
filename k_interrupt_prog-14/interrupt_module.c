@@ -16,7 +16,6 @@
 #include <asm/io.h> 
 #include <linux/kobject.h> 
 
-#define BUFF_SIZE  1024
 #define IRQ_NO  1 
 
 
@@ -27,11 +26,10 @@ static int irq_dev_id ;
 static struct cdev mycdev ;
 static struct class *myclass ;
 static struct device *mydevice ; 
-static struct task_struct *kthread;
 static struct kobject *kobject_ref;
-static char device_buffer[BUFF_SIZE] ;
 static int kobj_value =  10 ; 
 static char ch ;
+static int count =0 ; 
 static char keystroke_buffer[130] ; 
 /* scancode to ascii  */
 static const char  scancode_to_ascii[128] = 
@@ -48,7 +46,6 @@ static const char  scancode_to_ascii[128] =
 
 /******************************** DRIVER FUNCTION PROTOTYPE *********************** */ 
 
-static int thread_function(void *data) ; 
 static int my_open(struct inode *inode , struct file *file ) ; 
 static int my_release(struct inode *inode , struct file *file) ;
 static ssize_t my_read ( struct file *filp , char __user *buf , size_t len , loff_t *offset) ;
@@ -63,17 +60,19 @@ static ssize_t sysfs_store(struct kobject *kobj , struct kobj_attribute *attr ,c
 
 static irqreturn_t irq_handler ( int  irq   , void *dev_id) 
 {
-	static int count = 0 ; 
 	unsigned char scancode = inb(0x60);
        if(scancode  < 128 ) 
        {
 	  ch  =    scancode_to_ascii[scancode] ; 
 	 if(ch != 0) 
 	 {
-		keystroke_buffer[count] = ch ;
-	       keystroke_buffer[count +1] = '\0' ; 
+		 if(count < sizeof(keystroke_buffer) - 2 ) 
+		 {
 
-		count ++ ; 
+			keystroke_buffer[count] = ch ;
+		        keystroke_buffer[count +1] = '\0' ;
+		       count ++ ;	
+		 }
 		pr_info("Key Entered : %c With scancode :  0x%02x\n",ch, scancode) ; 
 	 } 
 
@@ -101,28 +100,7 @@ static struct file_operations fops ={
 };
 
 
-
-/***************************** THREAD FUNCTIONS ***************************/ 
-
-/* thread function one */
-static int thread_function ( void *data ) 
-{
-	while (!kthread_should_stop())
-	{
-
-		pr_info(" --WAITING FOR EVENT -- \n" );
-		size_t temperature ; 
-
-		temperature = get_random_u32() % 100;
-	       if(temperature >   75  ) 
-	       {
-		        pr_info(" calling \n");
-	       }
-
-		msleep(2000); 
-	} 
-	return 0 ;
-} 
+ 
 /***************************** PROC_FS  FUNCTIONS ************************/
 
 static ssize_t sysfs_show(struct kobject *kobj , struct kobj_attribute *attr , char *buff)
@@ -189,13 +167,6 @@ static int __init hello_init(void)
 	}
 
 
-	kthread = kthread_run(thread_function, NULL, "thread_function_one"); 
-	if(!kthread)
-	{
-		goto r_class ;
-	} 
-
-
 	if(request_irq(IRQ_NO , irq_handler , IRQF_SHARED , "interrupt_test" , &irq_dev_id)) 
 	{
 		pr_info(" FAILED TO REG IRQ \n"); 
@@ -207,7 +178,7 @@ static int __init hello_init(void)
 	printk(KERN_INFO " DRIVER - LOADED \n");
 	return 0 ;
 r_irq:
-	free_irq(IRQ_NO  , (void *)(irq_handler)); 
+	free_irq(IRQ_NO  , &irq_dev_id); 
 
 r_sysfs :
       	kobject_put(kobject_ref);	   
@@ -233,8 +204,10 @@ r_device :
 static void __exit hello_exit(void)
 {
 
+
+	count = 0 ; 
 	free_irq(IRQ_NO  , &irq_dev_id); 
-	kthread_stop(kthread);
+	sysfs_remove_file(kobject_ref , &kobj_attr.attr); 
 	kobject_put(kobject_ref);
 	sysfs_remove_file(kobject_ref , &kobj_attr.attr); 
 	device_destroy(myclass , dev ) ;
@@ -252,29 +225,28 @@ static void __exit hello_exit(void)
 /* Writing function */ 
 static ssize_t my_write(struct file *filp , const char __user *buf , size_t len , loff_t *offset ) 
 {
-	size_t to_copy ; 
 
-	if(len > BUFF_SIZE) 
-	{
-		to_copy = BUFF_SIZE ; 
-	}else{
-		to_copy = len ; 
-	}
 
-	if(copy_from_user(device_buffer , buf , to_copy ) !=0)
+	char    *device_buffer = kmalloc((len+1) , GFP_KERNEL) ; 
+	if(device_buffer == NULL) 
 	{
+		pr_info(" ENOMEM\n"); 
+		return -ENOMEM ; 
+	} 
+
+	if(copy_from_user(device_buffer, buf , len)!=0) 
+	{ 
+		pr_info(" ENOMEM\n"); 
 		return -EFAULT ; 
-	}
+	} 
 
-	printk(KERN_INFO "  rev %zu from user \n",to_copy) ;
+	device_buffer[len+1] = '\0' ; 
 
-	size_t safe_len = (to_copy < BUFF_SIZE -1 ) ? to_copy : BUFF_SIZE -1 ; 
+	pr_info(" READ FUNCTION  : %s \n", device_buffer) ; 
+	kfree(device_buffer) ; 
+	device_buffer = NULL ; 
 
-	device_buffer[safe_len] = '\0' ; 
-
-	printk(KERN_INFO " MESSAGE : %s \n " , device_buffer) ;
-
-       return to_copy;
+        return  len;
               
 }
 
@@ -284,26 +256,22 @@ static ssize_t my_write(struct file *filp , const char __user *buf , size_t len 
 /* Reading function  */
 static ssize_t my_read(struct file *filp , char __user *buf , size_t len , loff_t *offset)  
 {
-	size_t   length =  strlen(device_buffer) ;
-  
-   	if(*offset >= length ) 
- 	{
- 	return 0 ;
- 	}	
 
-        device_buffer[length] = '\0' ; 
+	size_t length = strlen(keystroke_buffer); 
 
-	if(copy_to_user( buf , device_buffer , length) !=0) 
+	if(*offset >= length ) 
+	{
+		return 0 ; 
+	} 
+
+	if(copy_to_user(buf , keystroke_buffer, length)!=0)
 	{
 		return -EFAULT ;
-	}
+	} 
+
 	*offset += length ; 
-	pr_info(" READ FUNCTION \n"); 
 	
-//	asm("int $0x3B") ;
-
-	return  length  ; 
-
+	return  length ; 
 }
 
 
