@@ -17,7 +17,7 @@
 #include <linux/kobject.h> 
 
 #define BUFF_SIZE  1024
-#define IRQ_NO  11 
+#define IRQ_NO  1 
 
 
 /* global and static variables */ 
@@ -49,6 +49,9 @@ static ssize_t sysfs_store(struct kobject *kobj , struct kobj_attribute *attr ,c
 
 static irqreturn_t irq_handler ( int  irq   , void *dev_id) 
 {
+	unsigned char scancode = inb(0x60); 
+	pr_info("scancode : 0x%02x\n",scancode);
+	pr_info(" IRQ_NO :%d \n",irq) ;
 	pr_info("  SHARED IRQ  : Interrupt Occured \n"); 
 	return  IRQ_HANDLED ;
 } 
@@ -270,7 +273,7 @@ static ssize_t my_read(struct file *filp , char __user *buf , size_t len , loff_
 	*offset += length ; 
 	pr_info(" READ FUNCTION \n"); 
 	
-	asm("int $0x3B") ;
+//	asm("int $0x3B") ;
 
 	return  length  ; 
 
