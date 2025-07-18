@@ -12,41 +12,27 @@
 #include <linux/delay.h>
 #include <linux/mutex.h> 
 #include <linux/string.h>
-#include <linux/interrupt.h> 
-#include <asm/io.h> 
-#include <linux/kobject.h> 
+#define BUFF_SIZE 1024 
 
-#define IRQ_NO  1 
-
+DEFINE_SPINLOCK(spinlock_test);
 
 /* global and static variables */ 
 
 dev_t dev ;
-static int irq_dev_id ; 
 static struct cdev mycdev ;
 static struct class *myclass ;
 static struct device *mydevice ; 
+static struct task_struct *kthread;
+static struct task_struct *kthread1; 
 static struct kobject *kobject_ref;
 static int kobj_value =  10 ; 
-static char ch ;
-static int count =0 ;
-static char *device_buffer = NULL ; 
-static char keystroke_buffer[130] ; 
-/* scancode to ascii  */
-static const char  scancode_to_ascii[128] = 
-{
-
-       0, 27 , '1' , '2' , '3' , '4' , '5' , '6' , '7' ,'8' , '9' , '0' , '-', '=', '\b',
-	'\t' , 'q' , 'w','e', 'r' ,'t' , 'y' , 'u' , 'i' , 'o', 'p' , '[' , ']' , '\n' , 
-      'a' , 's' , 'd', 'f', 'g', 'h', 'j', 'k','l',';', '\''  , '`' , '\\'	, 
-      'z', 'x','c' ,'v', 'b', 'n' , 'm' ,',' ,'.' ,'/', '*' , ' ' , 0 
-
-};
-
-
+static int global_variable = 0 ; 
+static char device_buffer[BUFF_SIZE] ; 
 
 /******************************** DRIVER FUNCTION PROTOTYPE *********************** */ 
 
+static int thread_function(void *data) ;
+static int thread_function1(void *data) ; 
 static int my_open(struct inode *inode , struct file *file ) ; 
 static int my_release(struct inode *inode , struct file *file) ;
 static ssize_t my_read ( struct file *filp , char __user *buf , size_t len , loff_t *offset) ;
@@ -57,37 +43,11 @@ static ssize_t my_write(struct file *filp , const char __user *buf , size_t len 
 static ssize_t sysfs_show(struct kobject *kobj , struct kobj_attribute *attr , char *buff);
 static ssize_t sysfs_store(struct kobject *kobj , struct kobj_attribute *attr ,const  char *buff, size_t count);
 
-/*********************************  IRQ HANDLER *************************************/ 
-
-static irqreturn_t irq_handler ( int  irq   , void *dev_id) 
-{
-	unsigned char scancode = inb(0x60);
-       if(scancode  < 128 ) 
-       {
-	  ch  =    scancode_to_ascii[scancode] ; 
-	 if(ch != 0) 
-	 {
-		 if(count < sizeof(keystroke_buffer) - 2 ) 
-		 {
-
-			keystroke_buffer[count] = ch ;
-		        keystroke_buffer[count +1] = '\0' ;
-		       count ++ ;	
-		 }
-		pr_info("Key Entered : %c With scancode :  0x%02x\n",ch, scancode) ; 
-	 } 
-
-       }
-
-	pr_info("  SHARED IRQ  : Interrupt Occured \n"); 
-	return  IRQ_HANDLED ;
-} 
-
 
 
 /* file attribute for sysfs */ 
 
-struct kobj_attribute kobj_attr = __ATTR(interrupt_file, 0660, sysfs_show , sysfs_store) ;
+struct kobj_attribute kobj_attr = __ATTR("test_file", 0660, sysfs_show , sysfs_store) ;
 
 
 /* file operations for driver    */
@@ -101,12 +61,59 @@ static struct file_operations fops ={
 };
 
 
- 
+
+/***************************** THREAD FUNCTIONS ***************************/ 
+
+/* thread function one */
+static int thread_function ( void *data ) 
+{
+	while (!kthread_should_stop())
+	{
+		if(!spin_is_locked(&spinlock_test)) 
+		{
+			pr_info(" Not Locked\n"); 
+		} 
+		spin_lock(&spinlock_test) ; 
+		
+		global_variable ++ ; 
+
+		pr_info(" Value of GV :%d\n", global_variable); 
+
+		if(spin_is_locked(&spinlock_test))
+		{
+			pr_info("Spin Locked \n"); 
+		} 
+
+		spin_unlock(&spinlock_test) ; 	
+
+		msleep(2000); 
+	} 
+	return 0 ;
+}
+
+/* Thread function two */ 
+static int thread_function1(void *data) 
+{ 
+	while(!kthread_should_stop())
+	{
+		spin_lock(&spinlock_test) ; 
+	        	
+		global_variable ++ ;
+		pr_info(" Value of GV :%d \n", global_variable) ;
+		spin_unlock(&spinlock_test);
+
+		msleep(2000);
+	} 
+	return 0 ;
+} 
+
+
+
 /***************************** PROC_FS  FUNCTIONS ************************/
 
 static ssize_t sysfs_show(struct kobject *kobj , struct kobj_attribute *attr , char *buff)
 {
-	return sprintf(buff  , "%s",keystroke_buffer) ; 
+	return sprintf(buff , "%d",kobj_value) ; 
 }
 
 static ssize_t sysfs_store(struct kobject *kobj , struct kobj_attribute *attr ,const  char *buff, size_t count)
@@ -158,7 +165,7 @@ static int __init hello_init(void)
 
 	/* creating a dir in /sys/ */
 
-	kobject_ref = kobject_create_and_add("interrupt_test",kernel_kobj);
+	kobject_ref = kobject_create_and_add("test_file",kernel_kobj);
 
 	/* creating a file in  /sys/interrupt_test/ */ 
 
@@ -168,19 +175,27 @@ static int __init hello_init(void)
 	}
 
 
-	if(request_irq(IRQ_NO , irq_handler , IRQF_SHARED , "interrupt_test" , &irq_dev_id)) 
+	kthread = kthread_run(thread_function, NULL, "thread_function_one"); 
+	if(!kthread)
 	{
-		pr_info(" FAILED TO REG IRQ \n"); 
-		goto r_irq ; 
+		goto r_thread ;
+	}
+
+	kthread1 = kthread_run(thread_function1 , NULL , "thread_function_two"); 
+	if(!kthread1)
+	{
+		goto r_thread ; 
 	} 
+
+
 
 
 	
 	printk(KERN_INFO " DRIVER - LOADED \n");
 	return 0 ;
-r_irq:
-	free_irq(IRQ_NO  , &irq_dev_id); 
-
+r_thread : 
+	kthread_stop(kthread); 
+	kthread_stop(kthread1) ;
 r_sysfs :
       	kobject_put(kobject_ref);	   
 	sysfs_remove_file(kobject_ref , &kobj_attr.attr); 
@@ -205,11 +220,9 @@ r_device :
 static void __exit hello_exit(void)
 {
 
+	kthread_stop(kthread);
+	kthread_stop(kthread1);
 
-	count = 0 ;
-       kfree(device_buffer) ;	
-	free_irq(IRQ_NO  , &irq_dev_id); 
-	sysfs_remove_file(kobject_ref , &kobj_attr.attr); 
 	kobject_put(kobject_ref);
 	sysfs_remove_file(kobject_ref , &kobj_attr.attr); 
 	device_destroy(myclass , dev ) ;
@@ -218,7 +231,7 @@ static void __exit hello_exit(void)
 	unregister_chrdev_region(dev, 1 ) ;
 
 	
-	printk(KERN_INFO "bye - from - kernel \n");
+	printk(KERN_INFO "-- DRIVER UNLOADED -- \n");
 	return ;
 }
 
@@ -227,28 +240,29 @@ static void __exit hello_exit(void)
 /* Writing function */ 
 static ssize_t my_write(struct file *filp , const char __user *buf , size_t len , loff_t *offset ) 
 {
+	size_t to_copy ; 
 
-	pr_info(" WRITE FUNCTION CALLED \n") ; 
-
-
-	device_buffer = kmalloc((len+1) , GFP_KERNEL) ; 
-	if(device_buffer == NULL) 
+	if(len > BUFF_SIZE) 
 	{
-		pr_info(" ENOMEM\n"); 
-		return -ENOMEM ; 
-	} 
+		to_copy = BUFF_SIZE ; 
+	}else{
+		to_copy = len ; 
+	}
 
-	if(copy_from_user(device_buffer, buf , len)!=0) 
-	{ 
-		pr_info(" EFAULT\n"); 
+	if(copy_from_user(device_buffer , buf , to_copy ) !=0)
+	{
 		return -EFAULT ; 
-	} 
+	}
 
-	device_buffer[len] = '\0' ; 
+	printk(KERN_INFO "  rev %zu from user \n",to_copy) ;
 
-	pr_info(" READ FUNCTION  : %s \n", device_buffer) ; 
+	size_t safe_len = (to_copy < BUFF_SIZE -1 ) ? to_copy : BUFF_SIZE -1 ; 
 
-        return  len;
+	device_buffer[safe_len] = '\0' ; 
+
+	printk(KERN_INFO " MESSAGE : %s \n " , device_buffer) ;
+
+       return to_copy;
               
 }
 
@@ -258,22 +272,25 @@ static ssize_t my_write(struct file *filp , const char __user *buf , size_t len 
 /* Reading function  */
 static ssize_t my_read(struct file *filp , char __user *buf , size_t len , loff_t *offset)  
 {
+	size_t   length =  strlen(device_buffer) ;
+  
+   	if(*offset >= length ) 
+ 	{
+ 	return 0 ;
+ 	}	
 
-	size_t length = strlen(device_buffer); 
+        device_buffer[length] = '\0' ; 
 
-	if(*offset >= length ) 
-	{
-		return 0 ; 
-	} 
-
-	if(copy_to_user(buf , device_buffer, length)!=0)
+	if(copy_to_user( buf , device_buffer , length) !=0) 
 	{
 		return -EFAULT ;
-	} 
-
+	}
 	*offset += length ; 
-	
-	return  length ; 
+
+
+
+	return  length  ; 
+
 }
 
 
@@ -282,7 +299,7 @@ static ssize_t my_read(struct file *filp , char __user *buf , size_t len , loff_
 /* Myopen function */
 static  int my_open ( struct inode *inode , struct file *file) 
 {
-	printk(KERN_INFO " DEVICE FILE OPENED\n") ; 
+	printk(KERN_INFO " - OPEN FUNC - \n") ; 
 	return 0 ; 
 } 
 
@@ -292,9 +309,10 @@ static  int my_open ( struct inode *inode , struct file *file)
 /*  my_release function */ 
 static int my_release(struct inode *inode , struct file *file) 
 {
-	printk(KERN_INFO "  DEVICE FILE  CLOSED  \n ");
-	return 0 ; 
+	printk(KERN_INFO " - RELEASE FUNC -  \n ");
+	return 0 ;
 } 
+
 
 
 
