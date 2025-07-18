@@ -1,3 +1,4 @@
+#include <linux/timer.h>
 #include <linux/slab.h>
 #include <linux/random.h>
 #include <linux/proc_fs.h> 
@@ -23,16 +24,17 @@ static struct cdev mycdev ;
 static struct class *myclass ;
 static struct device *mydevice ; 
 static struct task_struct *kthread;
-static struct task_struct *kthread1; 
 static struct kobject *kobject_ref;
 static int kobj_value =  10 ; 
 static int global_variable = 0 ; 
 static char device_buffer[BUFF_SIZE] ; 
+static struct timer_list my_timer ; 
+
+
 
 /******************************** DRIVER FUNCTION PROTOTYPE *********************** */ 
 
 static int thread_function(void *data) ;
-static int thread_function1(void *data) ; 
 static int my_open(struct inode *inode , struct file *file ) ; 
 static int my_release(struct inode *inode , struct file *file) ;
 static ssize_t my_read ( struct file *filp , char __user *buf , size_t len , loff_t *offset) ;
@@ -42,6 +44,27 @@ static ssize_t my_write(struct file *filp , const char __user *buf , size_t len 
 
 static ssize_t sysfs_show(struct kobject *kobj , struct kobj_attribute *attr , char *buff);
 static ssize_t sysfs_store(struct kobject *kobj , struct kobj_attribute *attr ,const  char *buff, size_t count);
+
+
+/********************************  TIMER  INTERRUPT   FUNC ***************************/ 
+
+static void  timer_callback(struct timer_list *t); 
+
+/* timer funtion */ 
+
+static void  timer_callback(struct timer_list *t) 
+{ 
+
+	spin_lock(&spinlock_test); 
+	global_variable  = 100 ; 
+	pr_info(" -Timer Call-  value :%d\n",global_variable); 
+
+	spin_unlock(&spinlock_test) ; 
+	mod_timer(&my_timer , jiffies + msecs_to_jiffies(5000)) ; 
+} 
+
+
+
 
 
 
@@ -69,16 +92,17 @@ static int thread_function ( void *data )
 {
 	while (!kthread_should_stop())
 	{
+		unsigned long flags ; 
+
 		pr_info("-first  thread - \n");
 		if(!spin_is_locked(&spinlock_test)) 
 		{
 			pr_info(" Not Locked\n"); 
 		} 
-		spin_lock(&spinlock_test) ; 
+		spin_lock_irqsave(&spinlock_test, flags ) ; 
 		
-		global_variable ++ ;
-
-		msleep(7000); 
+		global_variable = 50 ;
+		
 
 		pr_info(" Value of GV :%d\n", global_variable); 
 
@@ -87,29 +111,13 @@ static int thread_function ( void *data )
 			pr_info("Spin Locked \n"); 
 		} 
 
-		//spin_unlock(&spinlock_test) ; 	
+		spin_unlock_irqrestore(&spinlock_test, flags ) ; 	
+
+		msleep(2000);
 
 	} 
 	return 0 ;
 }
-
-/* Thread function two */ 
-static int thread_function1(void *data) 
-{ 
-	while(!kthread_should_stop())
-	{
-		pr_info("- sec thread - \n");
-		spin_lock(&spinlock_test) ; 
-	        	
-		global_variable ++ ;
-		pr_info(" Value of GV :%d \n", global_variable) ;
-		spin_unlock(&spinlock_test);
-
-		msleep(2000);
-	} 
-	return 0 ;
-} 
-
 
 
 /***************************** PROC_FS  FUNCTIONS ************************/
@@ -184,13 +192,10 @@ static int __init hello_init(void)
 		goto r_thread ;
 	}
 
-	kthread1 = kthread_run(thread_function1 , NULL , "thread_function_two"); 
-	if(!kthread1)
-	{
-		goto r_thread ; 
-	} 
 
-
+	timer_setup(&my_timer , timer_callback , 0 ) ; 
+	mod_timer(&my_timer , jiffies +  msecs_to_jiffies(2000)) ; 
+	
 
 
 	
@@ -198,7 +203,6 @@ static int __init hello_init(void)
 	return 0 ;
 r_thread : 
 	kthread_stop(kthread); 
-	kthread_stop(kthread1) ;
 r_sysfs :
 	sysfs_remove_file(kobject_ref , &kobj_attr.attr); 
       	kobject_put(kobject_ref);	   
@@ -224,8 +228,8 @@ static void __exit hello_exit(void)
 {
 
 	kthread_stop(kthread);
-	kthread_stop(kthread1);
 
+	del_timer(&my_timer) ;
 	sysfs_remove_file(kobject_ref , &kobj_attr.attr); 
 	kobject_put(kobject_ref);
 	device_destroy(myclass , dev ) ;
