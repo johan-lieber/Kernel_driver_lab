@@ -69,6 +69,7 @@ static int thread_function ( void *data )
 {
 	while (!kthread_should_stop())
 	{
+		pr_info("-first  thread - \n");
 		if(!spin_is_locked(&spinlock_test)) 
 		{
 			pr_info(" Not Locked\n"); 
@@ -96,6 +97,7 @@ static int thread_function1(void *data)
 { 
 	while(!kthread_should_stop())
 	{
+		pr_info("- sec thread - \n");
 		spin_lock(&spinlock_test) ; 
 	        	
 		global_variable ++ ;
@@ -197,8 +199,8 @@ r_thread :
 	kthread_stop(kthread); 
 	kthread_stop(kthread1) ;
 r_sysfs :
-      	kobject_put(kobject_ref);	   
 	sysfs_remove_file(kobject_ref , &kobj_attr.attr); 
+      	kobject_put(kobject_ref);	   
 
 
 r_class :
@@ -223,8 +225,8 @@ static void __exit hello_exit(void)
 	kthread_stop(kthread);
 	kthread_stop(kthread1);
 
-	kobject_put(kobject_ref);
 	sysfs_remove_file(kobject_ref , &kobj_attr.attr); 
+	kobject_put(kobject_ref);
 	device_destroy(myclass , dev ) ;
 	class_destroy(myclass);
 	cdev_del(&mycdev);
