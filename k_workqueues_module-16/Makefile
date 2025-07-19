@@ -1,6 +1,4 @@
-obj-m +=spinlock_module.o
-obj-m +=spinlock_with_interrupts.o
-obj-m +=rwspinlock_module.o
+obj-m +=workqueues_module.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD  := $(shell pwd) 
