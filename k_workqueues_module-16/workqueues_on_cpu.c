@@ -16,7 +16,7 @@
 #include <linux/mutex.h> 
 #include <linux/string.h>
 #define BUFF_SIZE 1024 
-#define IRQ_NO 1 
+#define IRQ_NO 11 
 
 
 /* Variables */ 
@@ -94,7 +94,7 @@ static  irqreturn_t irq_handler(int irq , void *dev_id )
 	pr_info(" Work scheduled on cpu %d\n", cpu_id); 
 	if(!work_pending(&workqueue)) 
 	{ 
-		schedule_work_on(cpu_id,&workqueue);		
+		schedule_work_on(0,&workqueue);		
 	}else{ 
 		pr_info(" Already on Workqueue\n") ; 
 	} 
@@ -279,6 +279,13 @@ static ssize_t my_write(struct file *filp , const char __user *buf , size_t len 
 	size_t safe_len = (to_copy < BUFF_SIZE -1 ) ? to_copy : BUFF_SIZE -1 ; 
 
 	device_buffer[safe_len] = '\0' ; 
+
+	if(strcmp(device_buffer , "trigger")==0) 
+	{ 
+		pr_info(" MATCHED \n") ; 
+		irq_handler(IRQ_NO, &irq_dev_id) ; 
+	} 
+
 
 	printk(KERN_INFO " MESSAGE : %s \n " , device_buffer) ;
 
