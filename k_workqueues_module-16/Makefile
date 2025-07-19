@@ -1,4 +1,4 @@
-obj-m +=workqueues_module.o
+obj-m +=workqueues_on_cpu.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD  := $(shell pwd) 
