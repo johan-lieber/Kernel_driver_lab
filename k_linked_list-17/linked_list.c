@@ -1,5 +1,3 @@
-#include <linux/smp.h> 
-#include <linux/workqueue.h>
 #include <linux/interrupt.h>
 #include <linux/slab.h>
 #include <linux/random.h>
@@ -16,11 +14,13 @@
 #include <linux/mutex.h> 
 #include <linux/string.h>
 #define BUFF_SIZE 1024 
-#define IRQ_NO 1 
+#define IRQ_NO 11 
 
+LIST_HEAD(head_node) ;
 
 /* Variables */ 
 dev_t dev ;
+static int temp_value = 0 ;
 static  int irq_dev_id ; 
 static struct cdev mycdev ;
 static struct class *myclass ;
@@ -30,6 +30,13 @@ static struct kobject *kobject_ref;
 static int kobj_value =  10 ; 
 static int global_variable = 0 ; 
 static char device_buffer[BUFF_SIZE] ; 
+static struct  workqueue_struct   *own_workqueue ;
+struct my_list { 
+	struct list_head list ; 
+	int data ; 
+}; 
+
+
 
 /******************************** DRIVER FUNCTION PROTOTYPE *********************** */ 
 
@@ -71,16 +78,7 @@ void workqueue_fn (struct work_struct *work)
 {
 	pr_info(" - WORKQUEU FN -- \n"); 
 
-	int cpu  ; 
-	for_each_online_cpu(cpu) 
-	{
-		pr_info(" Online cpu :%d\n", cpu); 
-	} 
-	int cpu_count = num_online_cpus() ; 
-	pr_info (" Total cpus : %d",cpu_count); 
-
-
-	msleep(2000);
+	msleep(4000);
 	return ; 
 
 } 
@@ -89,8 +87,12 @@ void workqueue_fn (struct work_struct *work)
 static  irqreturn_t irq_handler(int irq , void *dev_id ) 
 {
 	pr_info(" Interrupt Occured !\n");
+	
+if(!queue_work(own_workqueue,&workqueue)) 
+{ 
+	pr_info(" Already on Queue \n") ; 
+} 
 
-	schedule_work(&workqueue) ;
 	return  IRQ_HANDLED ; 
 } 
 
@@ -188,14 +190,23 @@ static int __init hello_init(void)
 	}
 
 
-	 int   result  = request_irq(IRQ_NO ,irq_handler , IRQF_SHARED , "mychardev",&irq_dev_id);
-	 if(result ) 
-	 { 
+	if(request_irq(IRQ_NO ,irq_handler , IRQF_SHARED , "mychardev",&irq_dev_id))
+	{
 		pr_info(" IRQ REG ERR \n"); 
 		goto r_irq ; 
-       	} 
+	} 
 
 
+
+	own_workqueue = alloc_workqueue("own_wq" , WQ_UNBOUND | WQ_CPU_INTENSIVE , 2 ) ; 
+	
+	if ( !own_workqueue ) 
+	{ 
+		pr_info(" WQ_ALLOC_ERR\n"); 
+		return -ENOMEM ; 
+	} 
+
+	
 	
 	printk(KERN_INFO " DRIVER - LOADED \n");
 	return 0 ;
@@ -229,7 +240,16 @@ r_device :
 /* module exit funnction */ 
 static void __exit hello_exit(void)
 {
+
+	struct my_list  *cursor , *temp; 
+	list_for_each_entry_safe(cursor, temp , &head_node , list ) 
+	{ 
+		list_del(&cursor->list) ; 
+		kfree(cursor) ; 
+	} 
+
 	flush_work(&workqueue) ;
+	destroy_workqueue(own_workqueue) ;
 
 	free_irq(IRQ_NO ,&irq_dev_id) ;
 
@@ -266,11 +286,25 @@ static ssize_t my_write(struct file *filp , const char __user *buf , size_t len 
 		return -EFAULT ; 
 	}
 
-	printk(KERN_INFO "  rev %zu from user \n",to_copy) ;
 
 	size_t safe_len = (to_copy < BUFF_SIZE -1 ) ? to_copy : BUFF_SIZE -1 ; 
 
+	
 	device_buffer[safe_len] = '\0' ; 
+	
+	/*Creating nodes */
+
+	 struct my_list  *new_node  = NULL ; 
+	 new_node = kmalloc(sizeof(struct my_list), GFP_KERNEL);
+	 if(new_node == NULL) 
+	 { 
+		 return  -EINVAL;
+	 } 
+	 new_node->data = temp_value +1  ; 
+	 
+	 INIT_LIST_HEAD(&new_node->list); 
+	 list_add_tail(&new_node->list ,&head_node) ;
+
 
 	printk(KERN_INFO " MESSAGE : %s \n " , device_buffer) ;
 
@@ -285,11 +319,38 @@ static ssize_t my_write(struct file *filp , const char __user *buf , size_t len 
 static ssize_t my_read(struct file *filp , char __user *buf , size_t len , loff_t *offset)  
 {
 	size_t   length =  strlen(device_buffer) ;
-  
+ 
    	if(*offset >= length ) 
  	{
  	return 0 ;
- 	}	
+ 	}
+
+	pr_info(" -READ FN --\n") ; 
+	
+	 struct my_list  *temp ; 
+       int count = 0 ; 
+
+       /* Listing all nodes */ 
+
+	list_for_each_entry(temp, &head_node , list )
+	{ 
+	pr_info( "node : %d data = %d\n", count++,  temp->data) ;
+	} 
+
+	if(length < 0 ) 
+	{ 
+	 	
+		char *backupdata  = " NO DATA \n" ; 
+		
+		length = strlen(backupdata) ; 
+		if(copy_to_user(buf, backupdata , length)!=0) 
+		{ 
+			return -EFAULT ; 
+		} 
+		*offset += length ;
+	       return length ; 	
+	} 
+
 
         device_buffer[length] = '\0' ; 
 

@@ -1,4 +1,4 @@
-obj-m +=own_workqueues.o
+obj-m +=linked_list.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD  := $(shell pwd) 

@@ -1,4 +1,3 @@
-#include <linux/smp.h> 
 #include <linux/workqueue.h>
 #include <linux/interrupt.h>
 #include <linux/slab.h>
@@ -30,6 +29,8 @@ static struct kobject *kobject_ref;
 static int kobj_value =  10 ; 
 static int global_variable = 0 ; 
 static char device_buffer[BUFF_SIZE] ; 
+static struct  workqueue_struct   *own_workqueue ;
+
 
 /******************************** DRIVER FUNCTION PROTOTYPE *********************** */ 
 
@@ -71,15 +72,6 @@ void workqueue_fn (struct work_struct *work)
 {
 	pr_info(" - WORKQUEU FN -- \n"); 
 
-	int cpu  ; 
-	for_each_online_cpu(cpu) 
-	{
-		pr_info(" Online cpu :%d\n", cpu); 
-	} 
-	int cpu_count = num_online_cpus() ; 
-	pr_info (" Total cpus : %d",cpu_count); 
-
-
 	msleep(2000);
 	return ; 
 
@@ -89,8 +81,12 @@ void workqueue_fn (struct work_struct *work)
 static  irqreturn_t irq_handler(int irq , void *dev_id ) 
 {
 	pr_info(" Interrupt Occured !\n");
+	
+if(!queue_work(own_workqueue,&workqueue)) 
+{ 
+	pr_info(" Already on Queue \n") ; 
+} 
 
-	schedule_work(&workqueue) ;
 	return  IRQ_HANDLED ; 
 } 
 
@@ -188,14 +184,23 @@ static int __init hello_init(void)
 	}
 
 
-	 int   result  = request_irq(IRQ_NO ,irq_handler , IRQF_SHARED , "mychardev",&irq_dev_id);
-	 if(result ) 
-	 { 
+	if(request_irq(IRQ_NO ,irq_handler , IRQF_SHARED , "mychardev",&irq_dev_id))
+	{
 		pr_info(" IRQ REG ERR \n"); 
 		goto r_irq ; 
-       	} 
+	} 
 
 
+
+	own_workqueue = alloc_workqueue("own_wq" , WQ_UNBOUND | WQ_CPU_INTENSIVE , 2 ) ; 
+	
+	if ( !own_workqueue ) 
+	{ 
+		pr_info(" WQ_ALLOC_ERR\n"); 
+		return -ENOMEM ; 
+	} 
+
+	
 	
 	printk(KERN_INFO " DRIVER - LOADED \n");
 	return 0 ;
@@ -230,6 +235,7 @@ r_device :
 static void __exit hello_exit(void)
 {
 	flush_work(&workqueue) ;
+	destroy_workqueue(own_workqueue) ;
 
 	free_irq(IRQ_NO ,&irq_dev_id) ;
 
