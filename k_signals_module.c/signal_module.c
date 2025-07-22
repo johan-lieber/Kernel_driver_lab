@@ -13,15 +13,18 @@
 #include <linux/delay.h>
 #include <linux/mutex.h> 
 #include <linux/string.h>
+#include <linux/ioctl.h>
+
+#define  SIGNO  44  
+#define  IO_READ  _IOR('a', 'b' , int )
+#define  IO_WRITE  _IOW('a' , 'b', int ) 
 #define BUFF_SIZE 1024 
 #define IRQ_NO 11 
 
 
-LIST_HEAD(head_node) ;
 
 /* Variables */ 
 dev_t dev ;
-static int temp_value = 0 ;
 static  int irq_dev_id ; 
 static struct cdev mycdev ;
 static struct class *myclass ;
@@ -31,11 +34,9 @@ static struct kobject *kobject_ref;
 static int kobj_value =  10 ; 
 static int global_variable = 0 ; 
 static char device_buffer[BUFF_SIZE] ; 
-struct my_list { 
-	struct list_head list ; 
-	int data ; 
-}; 
+static struct task_struct  *task = NULL ; 
 
+static int signum = 0 ; 
 
 /******************************** DRIVER FUNCTION PROTOTYPE *********************** */ 
 
@@ -44,6 +45,8 @@ static int my_open(struct inode *inode , struct file *file ) ;
 static int my_release(struct inode *inode , struct file *file) ;
 static ssize_t my_read ( struct file *filp , char __user *buf , size_t len , loff_t *offset) ;
 static ssize_t my_write(struct file *filp , const char __user *buf , size_t len , loff_t *offset ) ;
+static long my_ioctl ( struct file *file , unsigned int cmd  , unsigned long arg );
+
 
 /* File operations for driver    */
 static struct file_operations fops ={
@@ -51,7 +54,8 @@ static struct file_operations fops ={
 .read = my_read ,
 .write = my_write,
 .open = my_open ,
-.release = my_release 
+.release = my_release,
+.unlocked_ioctl = my_ioctl 
 };
 
 
@@ -79,6 +83,23 @@ static  irqreturn_t irq_handler(int irq , void *dev_id )
 {
 	pr_info(" Interrupt Occured !\n");
 	
+
+	 struct   kernel_siginfo info ; 
+	 memset(&info , 0 , sizeof( struct kernel_siginfo)); 
+	 info.si_signo = SIGNO ; 
+	 info.si_code = SI_QUEUE ; 
+	 info.si_int = 1 ; 
+
+	 if(task != NULL) 
+	 {
+		 pr_info(" -- SEDING SIG TO APP\n"); 
+		 if(send_sig_info(SIGNO, &info , task) < 0) 
+		 { 
+			 pr_info("-- FAILED TO SEND SIG\n") ; 
+		 } 
+
+	 } 
+
 
 
 	/* CALLING  TASKLET */ 
@@ -232,13 +253,6 @@ static void __exit hello_exit(void)
 {
 
 	tasklet_kill(&tasklet);
-	struct my_list  *cursor , *temp; 
-	list_for_each_entry_safe(cursor, temp , &head_node , list ) 
-	{ 
-		list_del(&cursor->list) ; 
-		kfree(cursor) ; 
-	} 
-
 
 	free_irq(IRQ_NO ,&irq_dev_id) ;
 
@@ -281,19 +295,6 @@ static ssize_t my_write(struct file *filp , const char __user *buf , size_t len 
 	
 	device_buffer[safe_len] = '\0' ; 
 	
-	/*Creating nodes */
-
-	 struct my_list  *new_node  = NULL ; 
-	 new_node = kmalloc(sizeof(struct my_list), GFP_KERNEL);
-	 if(new_node == NULL) 
-	 { 
-		 return  -EINVAL;
-	 } 
-	 new_node->data = temp_value +=1; 
-	 
-	 INIT_LIST_HEAD(&new_node->list); 
-	 list_add_tail(&new_node->list ,&head_node) ;
-
 
 	printk(KERN_INFO " MESSAGE : %s \n " , device_buffer) ;
 
@@ -316,16 +317,6 @@ static ssize_t my_read(struct file *filp , char __user *buf , size_t len , loff_
 
 	pr_info(" -READ FN --\n") ; 
 	
-	 struct my_list  *temp ; 
-       int count = 0 ; 
-
-       /* Listing all nodes */ 
-
-	list_for_each_entry(temp, &head_node , list )
-	{ 
-	pr_info( "node : %d data = %d\n", count++,  temp->data) ;
-	} 
-
 	if(length < 0 ) 
 	{ 
 	 	
@@ -355,6 +346,56 @@ static ssize_t my_read(struct file *filp , char __user *buf , size_t len , loff_
 
 }
 
+ 
+
+/* Ioctl  function */ 
+
+static  long  my_ioctl ( struct file *file , unsigned int cmd , unsigned long arg)
+{ 
+
+
+	pr_info(" INSIDE IOCTL \n"); 
+
+	if(cmd == IO_WRITE ) 
+	{ 
+		printk(KERN_INFO " REG_CURRENT_TASK\n") ;
+	       task = get_current() ; 
+
+		signum = SIGNO ; 
+	} 
+
+	int  value = 44 ; 
+
+	switch(cmd)
+	{
+case IO_READ :
+      if(copy_to_user((int *)arg , &value , sizeof(value))!=0)
+      {
+	      return -EFAULT ;
+      }
+
+      break ; 
+case  IO_WRITE:  
+
+       if(copy_from_user(&value , (int *)arg, sizeof(value ))!=0)
+       {
+	       return -EFAULT ;
+       }
+       pr_info("changed to value %d\n",value) ; 
+
+
+       break ; 
+
+default : 
+       pr_info(" NO CASE MATCHED \n") ;
+       break ; 
+	
+	}
+
+	return  value ; 
+} 
+
+
 
 
 
@@ -372,6 +413,15 @@ static  int my_open ( struct inode *inode , struct file *file)
 static int my_release(struct inode *inode , struct file *file) 
 {
 	printk(KERN_INFO " - RELEASE FUNC -  \n ");
+
+	struct task_struct   *ref_task = get_current() ; 
+
+	if(ref_task  == NULL ) 
+	{ 
+		task =NULL ; 
+	} 
+
+
 	return 0 ;
 } 
 
