@@ -16,6 +16,7 @@
 #define BUFF_SIZE 1024 
 #define IRQ_NO 11 
 
+
 LIST_HEAD(head_node) ;
 
 /* Variables */ 
@@ -30,12 +31,10 @@ static struct kobject *kobject_ref;
 static int kobj_value =  10 ; 
 static int global_variable = 0 ; 
 static char device_buffer[BUFF_SIZE] ; 
-static struct  workqueue_struct   *own_workqueue ;
 struct my_list { 
 	struct list_head list ; 
 	int data ; 
 }; 
-
 
 
 /******************************** DRIVER FUNCTION PROTOTYPE *********************** */ 
@@ -67,36 +66,38 @@ struct kobj_attribute kobj_attr = __ATTR("test_file", 0660, sysfs_show , sysfs_s
 
 /******************************** INTERRUPT - HANDLER  FUNCTIONS ******************************/ 
 
-void  workqueue_fn(struct work_struct *work) ; 
+void  tasklet_fn(unsigned long ) ; 
 static  irqreturn_t irq_handler( int irq , void *dev_id ); 
 
-DECLARE_WORK(workqueue,  workqueue_fn) ; 
 
 
-/* Workqueue fn */ 
-void workqueue_fn (struct work_struct *work) 
-{
-	pr_info(" - WORKQUEU FN -- \n"); 
+DECLARE_TASKLET(tasklet, tasklet_fn )
 
-	msleep(4000);
-	return ; 
-
-} 
 
 /* Interrupt Handler */ 
 static  irqreturn_t irq_handler(int irq , void *dev_id ) 
 {
 	pr_info(" Interrupt Occured !\n");
 	
-if(!queue_work(own_workqueue,&workqueue)) 
-{ 
-	pr_info(" Already on Queue \n") ; 
-} 
 
+
+	/* CALLING  TASKLET */ 
+
+
+	tasklet_schedule(&tasklet);
 	return  IRQ_HANDLED ; 
 } 
 
 
+
+
+/* TASKLET  fn */ 
+void tasklet_fn (unsigned  long   arg ) 
+{ 
+
+	pr_info(" --TASKLET fn -\n") ;
+	return ; 
+} 
 
 
 /***************************** THREAD FUNCTIONS ***************************/ 
@@ -195,17 +196,6 @@ static int __init hello_init(void)
 		pr_info(" IRQ REG ERR \n"); 
 		goto r_irq ; 
 	} 
-
-
-
-	own_workqueue = alloc_workqueue("own_wq" , WQ_UNBOUND | WQ_CPU_INTENSIVE , 2 ) ; 
-	
-	if ( !own_workqueue ) 
-	{ 
-		pr_info(" WQ_ALLOC_ERR\n"); 
-		return -ENOMEM ; 
-	} 
-
 	
 	
 	printk(KERN_INFO " DRIVER - LOADED \n");
@@ -241,6 +231,7 @@ r_device :
 static void __exit hello_exit(void)
 {
 
+	tasklet_kill(&tasklet);
 	struct my_list  *cursor , *temp; 
 	list_for_each_entry_safe(cursor, temp , &head_node , list ) 
 	{ 
@@ -248,8 +239,6 @@ static void __exit hello_exit(void)
 		kfree(cursor) ; 
 	} 
 
-	flush_work(&workqueue) ;
-	destroy_workqueue(own_workqueue) ;
 
 	free_irq(IRQ_NO ,&irq_dev_id) ;
 
