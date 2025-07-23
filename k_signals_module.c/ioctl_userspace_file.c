@@ -61,7 +61,7 @@ int main ()
 
 	sigemptyset(&act.sa_mask) ; 
 	act.sa_flags = (SA_SIGINFO | SA_RESTART) ; 
-	act.sa_sigaction = ctrl_c_handler ; 
+	act.sa_sigaction =sig_event_handler ; 
 	sigaction(SIGNO , &act , NULL ) ; 
 
 
@@ -84,7 +84,7 @@ int main ()
 
 	 printf(" REGESTER APPP\n") ; 
 
-	 if(ioctl(fd , IO_WRITE,  my_value)) 
+	 if(ioctl(fd , IO_WRITE,  my_value)< 0 ) 
 	 { 
 		 printf(" falied \n")  ; 
 		 close(fd); 

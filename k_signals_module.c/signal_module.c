@@ -1,3 +1,4 @@
+#include <linux/signal.h>
 #include <linux/interrupt.h>
 #include <linux/slab.h>
 #include <linux/random.h>
@@ -29,10 +30,8 @@ static  int irq_dev_id ;
 static struct cdev mycdev ;
 static struct class *myclass ;
 static struct device *mydevice ; 
-static struct task_struct *kthread;
 static struct kobject *kobject_ref;
 static int kobj_value =  10 ; 
-static int global_variable = 0 ; 
 static char device_buffer[BUFF_SIZE] ; 
 static struct task_struct  *task = NULL ; 
 
@@ -40,7 +39,6 @@ static int signum = 0 ;
 
 /******************************** DRIVER FUNCTION PROTOTYPE *********************** */ 
 
-static int thread_function(void *data) ;
 static int my_open(struct inode *inode , struct file *file ) ; 
 static int my_release(struct inode *inode , struct file *file) ;
 static ssize_t my_read ( struct file *filp , char __user *buf , size_t len , loff_t *offset) ;
@@ -82,24 +80,6 @@ DECLARE_TASKLET(tasklet, tasklet_fn );
 static  irqreturn_t irq_handler(int irq , void *dev_id ) 
 {
 	pr_info(" Interrupt Occured !\n");
-	
-
-	 struct   kernel_siginfo info ; 
-	 memset(&info , 0 , sizeof( struct kernel_siginfo)); 
-	 info.si_signo = SIGNO ; 
-	 info.si_code = SI_QUEUE ; 
-	 info.si_int = 1 ; 
-
-	 if(task != NULL) 
-	 {
-		 pr_info(" -- SEDING SIG TO APP\n"); 
-		 if(send_sig_info(SIGNO, &info , task) < 0) 
-		 { 
-			 pr_info("-- FAILED TO SEND SIG\n") ; 
-		 } 
-
-	 } 
-
 
 
 	/* CALLING  TASKLET */ 
@@ -121,23 +101,6 @@ void tasklet_fn ( struct tasklet_struct *t)
 } 
 
 
-/***************************** THREAD FUNCTIONS ***************************/ 
-
-/* thread function one */
-static int thread_function ( void *data ) 
-{
-	while (!kthread_should_stop())
-	{
-	
-		global_variable ++ ;
-
-		msleep(2000); 
-
-		pr_info(" Value of GV :%d\n", global_variable); 
-
-	} 
-	return 0 ;
-}
 
 /***************************** PROC_FS  FUNCTIONS ************************/
 
@@ -204,14 +167,6 @@ static int __init hello_init(void)
 		goto r_sysfs ; 
 	}
 
-
-	kthread = kthread_run(thread_function, NULL, "thread_function_one"); 
-	if(!kthread)
-	{
-		goto r_thread ;
-	}
-
-
 	if(request_irq(IRQ_NO ,irq_handler , IRQF_SHARED , "mychardev",&irq_dev_id))
 	{
 		pr_info(" IRQ REG ERR \n"); 
@@ -226,8 +181,6 @@ r_irq:
 	free_irq(IRQ_NO , &irq_dev_id) ; 
 
 
-r_thread : 
-	kthread_stop(kthread); 
 r_sysfs :
 	sysfs_remove_file(kobject_ref , &kobj_attr.attr); 
       	kobject_put(kobject_ref);	   
@@ -256,7 +209,6 @@ static void __exit hello_exit(void)
 
 	free_irq(IRQ_NO ,&irq_dev_id) ;
 
-	kthread_stop(kthread);
 
 	sysfs_remove_file(kobject_ref , &kobj_attr.attr); 
 	kobject_put(kobject_ref);
@@ -294,7 +246,33 @@ static ssize_t my_write(struct file *filp , const char __user *buf , size_t len 
 
 	
 	device_buffer[safe_len] = '\0' ; 
-	
+
+
+	 if (!task) 
+	 { 
+		 pr_info("  no task bedu \n"); 
+		 return  IRQ_HANDLED ;
+	 } 
+
+
+	 struct  kernel_siginfo   info ; 
+	 memset(&info , 0 , sizeof( struct kernel_siginfo)); 
+	 info.si_signo = SIGNO ; 
+	 info.si_code = SI_QUEUE ; 
+	 info.si_int = 1 ; 
+
+	 if(task != NULL) 
+	 {
+		 pr_info(" -- SEDING SIG TO APP\n"); 
+		 if(send_sig_info(SIGNO, &info , task) < 0) 
+		 { 
+			 pr_info("-- FAILED TO SEND SIG\n") ; 
+		 } 
+
+	 } 
+
+
+
 
 	printk(KERN_INFO " MESSAGE : %s \n " , device_buffer) ;
 
@@ -361,38 +339,18 @@ static  long  my_ioctl ( struct file *file , unsigned int cmd , unsigned long ar
 		printk(KERN_INFO " REG_CURRENT_TASK\n") ;
 	       task = get_current() ; 
 
-		signum = SIGNO ; 
+	       if(task) 
+	       { 
+		       pr_info("  task  pid  %d\n", task->pid); 
+	       }else { 
+		       pr_info("  no task  \n"); 
+	       } 
+
+
+		signum = SIGNO ;
+	       return 0 ; 	
 	} 
-
-	int  value = 44 ; 
-
-	switch(cmd)
-	{
-case IO_READ :
-      if(copy_to_user((int *)arg , &value , sizeof(value))!=0)
-      {
-	      return -EFAULT ;
-      }
-
-      break ; 
-case  IO_WRITE:  
-
-       if(copy_from_user(&value , (int *)arg, sizeof(value ))!=0)
-       {
-	       return -EFAULT ;
-       }
-       pr_info("changed to value %d\n",value) ; 
-
-
-       break ; 
-
-default : 
-       pr_info(" NO CASE MATCHED \n") ;
-       break ; 
-	
-	}
-
-	return  value ; 
+	return  0  ; 
 } 
 
 
