@@ -1,4 +1,4 @@
-obj-m +=sec_signal_module.o
+obj-m +=hrtimer_module.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD  := $(shell pwd) 
