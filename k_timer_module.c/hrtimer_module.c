@@ -36,7 +36,7 @@ static struct device *mydevice ;
 static char device_buffer[BUFF_SIZE] ; 
 static struct hrtimer    my_timer;  
 static   int timer_count = 0 ;
-
+static  ktime_t target ; 
 
 /*********************************  TIMER  FUNCTION *********************************/ 
 
@@ -48,8 +48,12 @@ enum hrtimer_restart timer_callback(struct hrtimer *timer );
 enum hrtimer_restart timer_callback(struct hrtimer *timer ) 
 { 
 
+	ktime_t  fired_time = ktime_get(); 
 	pr_info(" INSIDE TIMER %d \n",timer_count++);
 
+
+	s64  delta_ns = ktime_to_ns(ktime_sub(fired_time, target)); 
+	pr_info( "HRTIME DELTA :%lld ns \n" , delta_ns) ; 
 
 	hrtimer_forward_now(timer, ktime_set(TIMEOUT_SEC , TIMEOUT_NSEC)) ;  
 
@@ -115,7 +119,10 @@ static int __init hello_init(void)
 	{
 		goto r_device ; 
 	} 
-	
+
+	ktime_t now =  ktime_get() ; 
+	 target  = ktime_add_us(now, 500) ; 
+
 
 	ktime_t ktime ;  
 
