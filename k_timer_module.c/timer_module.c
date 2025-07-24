@@ -33,6 +33,7 @@ static struct device *mydevice ;
 static char device_buffer[BUFF_SIZE] ; 
 static struct  timer_list   my_timer ; 
 static   int timer_count = 0 ;
+static  long target_jiffies  = jiffies + msecs_to_jiffies(10) ; 
 
 
 /*********************************  TIMER  FUNCTION *********************************/ 
@@ -44,9 +45,14 @@ void  timer_handler (  struct timer_list *data  )
 { 
 
 	pr_info(" INSIDE TIMER %d \n",timer_count++);
-       mod_timer(&my_timer ,   jiffies + msecs_to_jiffies(TIMEOUT)); 
 
-       msleep(3000); 
+
+        unsigned long  fired = jiffies ; 
+	long delta_jiffies  = fired - target_jiffies ; 
+	pr_info("timer_list  delta :%ld jiffies ( ~%ld ms) \n" , delta_jiffies , jiffies_to_msecs(delta_jiffies));  
+
+	mod_timer(&my_timer ,   jiffies + msecs_to_jiffies(TIMEOUT)); 
+
 
 	return ; 
 } 
