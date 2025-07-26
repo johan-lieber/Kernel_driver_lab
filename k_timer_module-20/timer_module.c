@@ -33,7 +33,6 @@ static struct device *mydevice ;
 static char device_buffer[BUFF_SIZE] ; 
 static struct  timer_list   my_timer ; 
 static   int timer_count = 0 ;
-static  long target_jiffies  = jiffies + msecs_to_jiffies(10) ; 
 
 
 /*********************************  TIMER  FUNCTION *********************************/ 
@@ -44,6 +43,7 @@ void timer_handler (  struct timer_list *data ) ;
 void  timer_handler (  struct timer_list *data  ) 
 { 
 
+	  long target_jiffies  = jiffies + msecs_to_jiffies(10) ; 
 	pr_info(" INSIDE TIMER %d \n",timer_count++);
 
 
