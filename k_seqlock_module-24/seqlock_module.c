@@ -73,12 +73,13 @@ static int thread_function ( void *data )
 	{
 
 		pr_info(" THREAD 1 \n"); 
-		write_seqlock(&my_seqlock); 
-		seq_variable ++ ;
-	        pr_info(" Value of seq_variable :%lu",seq_variable); 
-		
-		write_sequnlock(&my_seqlock);
-	       pr_info("  THREAD 1 EXIT \n"); 	
+	        write_seqlock(&my_seqlock) ; 
+		seq_variable++; 
+		pr_info("T1  SV:%lu\n",seq_variable); 
+		write_sequnlock(&my_seqlock); 
+		pr_info(" THREAD 1 EXIT \n"); 
+
+
 		msleep(2000); 
 	} 
 	return 0 ;
@@ -87,17 +88,19 @@ static int thread_function ( void *data )
 /* Thread function two */ 
 static int thread_function1(void *data) 
 {
-       unsigned int seq_no ; 
-	unsigned long read_value ;        
+       //unsigned int seq_no ; 
+	///unsigned long read_value ;        
 	while(!kthread_should_stop())
 	{
+		unsigned int  seq_no ; 
 		pr_info("-   THREAD  2  - \n");
+	
 		do{ 
-			seq_no = read_seqbegin(&my_seqlock); 
-			pr_info(" Value of seq_no %u\n",seq_no) ; 
-			read_value = seq_variable; 
-		}while (read_seqretry(&my_seqlock , seq_no)); 
-		pr_info("   Read value : %lu\n", read_value) ;
+			seq_no  =  read_seqbegin(&my_seqlock);
+		       pr_info(" T2 sv:%lu\n",seq_variable); 	
+		  } 
+		while ( read_seqretry(&my_seqlock, seq_no)) ; 
+		
 		pr_info(" THREAD 2 EXIT \n"); 
 		msleep(2000);
 	} 
@@ -172,6 +175,8 @@ static int __init hello_init(void)
 	}
 
 
+	seqlock_init(&my_seqlock); 
+
 	kthread = kthread_run(thread_function, NULL, "thread_function_one"); 
 	if(!kthread)
 	{
@@ -186,7 +191,7 @@ static int __init hello_init(void)
 
 
 
-	seqlock_init(&my_seqlock); 
+	
 
 	
 	printk(KERN_INFO " DRIVER - LOADED \n");

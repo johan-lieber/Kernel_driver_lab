@@ -78,7 +78,6 @@ static int thread_function ( void *data )
 		
 		global_variable ++ ;
 
-		msleep(7000); 
 
 		pr_info(" Value of GV :%d\n", global_variable); 
 
@@ -87,7 +86,7 @@ static int thread_function ( void *data )
 			pr_info("Spin Locked \n"); 
 		} 
 
-		//spin_unlock(&spinlock_test) ; 	
+		spin_unlock(&spinlock_test) ; 	
 
 	} 
 	return 0 ;
