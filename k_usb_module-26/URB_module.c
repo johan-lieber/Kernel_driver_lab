@@ -150,7 +150,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 
 
 
-	 usb_fill_bulk_urb(my_urb, dev , usb_rcvbulkpipe(dev, bulk_in_endpointaddr), cbw_buffer , CBW_LEN , cbw_callback , NULL ) ; 
+	 usb_fill_bulk_urb(my_urb, dev , usb_rcvbulkpipe(dev, bulk_out_endpointaddr), cbw_buffer , CBW_LEN , cbw_callback , NULL ) ; 
 
 
 	 int ret = usb_submit_urb(my_urb , GFP_KERNEL); 
@@ -220,7 +220,7 @@ static   void cbw_callback ( struct urb *urb )
 	cbw_tag = cbw->dCBWTag; 
 	
 
-//	pr_info("Received  CBW - Command : 0x%02\n", cbw->CBWCB[0]); 
+//	pr_info("Received  CBW - Command : 0x%02x\n", cbw->CBWCB[0]); 
 
 	switch(cbw->CBWCB[0]) 
 	{ 
