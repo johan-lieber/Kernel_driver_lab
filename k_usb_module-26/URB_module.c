@@ -179,7 +179,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 
 
 
-	 usb_fill_bulk_urb(my_urb, dev , usb_rcvbulkpipe(dev, bulk_out_endpointaddr), cbw_buffer , CBW_LEN , cbw_callback , NULL ) ; 
+	 usb_fill_bulk_urb(my_urb, dev , usb_rcvbulkpipe(dev, bulk_in_endpointaddr), cbw_buffer , CBW_LEN , cbw_callback , NULL ) ; 
 
 
 	 int ret = usb_submit_urb(my_urb , GFP_KERNEL); 
@@ -206,9 +206,11 @@ r_urb :
 	 usb_free_urb(my_urb); 
 	 kfree(bulk_buf); 
 	kfree(cbw_buffer) ; 
+	}else{ 
+	       pr_info(" it seems my_urb is not \n"); 
+	 	return 0 ; 
 	} 
-
-	 return 0 ; 
+	return 0 ; 
 
 
 
