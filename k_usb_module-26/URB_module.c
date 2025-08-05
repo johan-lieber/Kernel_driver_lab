@@ -15,13 +15,19 @@
 
 
 /* GLOBAL VARIBALE */ 
-unsigned  char *bulk_buf ; 
-unsigned char *data_buf; 
-struct urb *my_urb ; 
-struct urb *data_urb ; 
-static char *csw_buffer ;
-struct urb *csw_urb ; 
-unsigned char *cbw_buffer ;
+unsigned  char *bulk_buf = NULL ; 
+
+unsigned char *data_buf = NULL;  
+struct urb *my_urb  = NULL ; 
+
+struct urb *data_urb = NULL ; 
+
+static char *csw_buffer = NULL ; 
+
+struct urb *csw_urb  = NULL ; 
+
+unsigned char *cbw_buffer = NULL ; 
+
  __u8  bulk_in_endpointaddr = 0  ; 
  __u8  bulk_out_endpointaddr  =  0 ; 
  __le32  cbw_tag  =  0 ; 	
@@ -133,11 +139,18 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	{ 
 		dev_err(&interface->dev , " BAD END POINTS ADD \n") ; 
 		return  -ENODEV ; 
+	
 	} 
+
+
+	pr_info(" bulk_in_endpointaddr :0x%02x\n", bulk_in_endpointaddr) ; 
+
+	pr_info(" bulk_out_endpointaddr :0x%02x\n", bulk_out_endpointaddr) ; 
 
 	 bulk_buf =  kmalloc(BUF_SIZE , GFP_KERNEL); 
 	 if(bulk_buf == NULL ) 
-	 { 
+	 {
+		pr_info(" bulk_buf_alloc_err\n");  
 		 return -ENOMEM  ; 
 	 } 
 
@@ -158,6 +171,8 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	 
 	 if(my_urb == NULL ) 
 	 {
+		 pr_info(" MY_URB ALLOC_ERRR\n"); 
+
 		 return - ENOMEM ; 
 	 } 
 
@@ -182,11 +197,17 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 
 	 return 0 ; 
 
-r_urb : 
+r_urb :
+	if(mu_urb) 
+	{ 
+
+		pr_info("enrering  r_urb") ; 
 	 usb_kill_urb(my_urb); 
 	 usb_free_urb(my_urb); 
 	 kfree(bulk_buf); 
 	kfree(cbw_buffer) ; 
+	} 
+
 	 return 0 ; 
 
 
@@ -202,22 +223,30 @@ static void usb_disconnect ( struct usb_interface  *interface )
 
 	pr_info(" USB - DISCONNECTED - \n"); 
 
+
+	if(my_urb) 
+	{	
 	usb_kill_urb(my_urb) ; 
 	usb_free_urb(my_urb) ; 
 	kfree(bulk_buf) ; 
 	kfree(cbw_buffer) ; 
-	
+	} 
 
+	if(data_urb) 
+	{ 
 	usb_kill_urb(data_urb); 
 	usb_free_urb(data_urb); 
 	kfree(data_buf); 
+	} 
 
 
-
+	if(csw_urb)
+	{
 	usb_kill_urb(csw_urb); 
 	usb_free_urb(csw_urb); 
 	kfree(csw_buffer); 
-	
+	} 
+
 	return ; 
 }
 
