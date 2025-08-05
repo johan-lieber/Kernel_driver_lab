@@ -16,7 +16,11 @@
 
 /* GLOBAL VARIBALE */ 
 unsigned  char *bulk_buf ; 
+unsigned char *data_buf; 
 struct urb *my_urb ; 
+struct urb *data_urb ; 
+static char *csw_buffer ;
+struct urb *csw_urb ; 
 unsigned char *cbw_buffer ;
  __u8  bulk_in_endpointaddr = 0  ; 
  __u8  bulk_out_endpointaddr  =  0 ; 
@@ -55,7 +59,7 @@ static void  csw_callback(struct urb *urb);
 */ 
 
 const struct  usb_device_id  usb_table[] = 
-{ { USB_DEVICE( PID , VID  )},  
+{ {USB_INTERFACE_INFO(USB_CLASS_MASS_STORAGE , USB_SC_SCSI , USB_PR_BULK ) },  
 	{}
 };
 
@@ -167,7 +171,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	 
 	 if(ret) 
 	 { 
-		 pr_info(" URB SUBMISSION  ERR \n") ; 
+		 pr_info(" URB SUBMISSION  ERR %d \n", ret) ; 
 		  
 		 goto r_urb ; 
 	 } 
@@ -181,7 +185,8 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 r_urb : 
 	 usb_kill_urb(my_urb); 
 	 usb_free_urb(my_urb); 
-	 kfree(bulk_buf);  
+	 kfree(bulk_buf); 
+	kfree(cbw_buffer) ; 
 	 return 0 ; 
 
 
@@ -200,7 +205,19 @@ static void usb_disconnect ( struct usb_interface  *interface )
 	usb_kill_urb(my_urb) ; 
 	usb_free_urb(my_urb) ; 
 	kfree(bulk_buf) ; 
+	kfree(cbw_buffer) ; 
+	
 
+	usb_kill_urb(data_urb); 
+	usb_free_urb(data_urb); 
+	kfree(data_buf); 
+
+
+
+	usb_kill_urb(csw_urb); 
+	usb_free_urb(csw_urb); 
+	kfree(csw_buffer); 
+	
 	return ; 
 }
 
@@ -236,14 +253,14 @@ static   void cbw_callback ( struct urb *urb )
 	{ 
 		case 0x12 : 
 			pr_info(" SCSI  INQUIRY command  Recieved \n");
-			struct urb *data_urb = usb_alloc_urb(0,GFP_KERNEL); 
+			data_urb = usb_alloc_urb(0,GFP_KERNEL); 
 			if(!data_urb) 
 			{ 
 				pr_info(" DATA_URB_ALLOC_ERR\n"); 
 				return ; 
 			} 
 
-			unsigned char *data_buf  = kmalloc(36 , GFP_KERNEL); 
+			data_buf  = kmalloc(36 , GFP_KERNEL); 
 			if(!data_buf) 
 			{ 
 				pr_err("  DATA_BUFF ALLOC ERR\n"); 
@@ -301,7 +318,7 @@ static   void data_callback  ( struct urb *urb )
 
 	pr_info("  -DATA CALLBACK FN -\n");
 
-	char *csw_buffer = kmalloc(13, GFP_KERNEL) ; 
+ 	csw_buffer = kmalloc(13, GFP_KERNEL) ; 
 	if(csw_buffer == NULL ) 
 	{ 
 		pr_info (" CSW_BUF_ALLOC_ERR\n"); 
@@ -316,7 +333,7 @@ static   void data_callback  ( struct urb *urb )
 	csw->bCSWStatus = 0 ; 
 
 
-	struct urb *csw_urb   = usb_alloc_urb(0, GFP_KERNEL); 
+	csw_urb   = usb_alloc_urb(0, GFP_KERNEL); 
 
 	usb_fill_bulk_urb(csw_urb, urb->dev,usb_sndbulkpipe(urb->dev , bulk_in_endpointaddr), csw_buffer, 13 , csw_callback, NULL) ; 
 	usb_submit_urb(csw_urb, GFP_KERNEL); 
@@ -345,7 +362,14 @@ static   void csw_callback ( struct urb *urb )
 
 static int __init urb_init(void) 
 { 
-	usb_register(&exmp_usb_driver) ; 
+       int ret =  usb_register_driver(&exmp_usb_driver,  THIS_MODULE , "URB_driver") ;
+      if( ret) 
+      { 
+	     pr_info("-USB REGISTER FAILED\n"); 
+	     return 0 ; 
+      } 
+
+
 	pr_info(" -USB  REGISTERED-  \n");
 
 	return 0 ; 
