@@ -158,7 +158,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 
 	 /*Allocating buffer  for CW_LEN */ 
 	 cbw_buffer = kmalloc(CBW_LEN , GFP_KERNEL) ; 
-	 if( cbw_buffer == NULL ) 
+	 if( cbw_buffer == NULL  ) 
 	 { 
 		 pr_info(" CW_BUF_ALLOC_ERR\n"); 
 		 return -ENOMEM ; 
@@ -169,7 +169,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	 /* Allocating and  urb */ 
 	 my_urb = usb_alloc_urb(0, GFP_KERNEL) ; 
 	 
-	 if(my_urb == NULL ) 
+	 if(!my_urb ) 
 	 {
 		 pr_info(" MY_URB ALLOC_ERRR\n"); 
 
