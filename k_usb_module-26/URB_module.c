@@ -161,7 +161,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	 if( cbw_buffer == NULL ) 
 	 { 
 		 pr_info(" CW_BUF_ALLOC_ERR\n"); 
-		 return ENOMEM ; 
+		 return -ENOMEM ; 
 	 } 
 
 
@@ -173,13 +173,13 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	 {
 		 pr_info(" MY_URB ALLOC_ERRR\n"); 
 
-		 return - ENOMEM ; 
+		 return -ENOMEM ; 
 	 } 
 
 
 
 
-	 usb_fill_bulk_urb(my_urb, dev , usb_rcvbulkpipe(dev, bulk_in_endpointaddr), cbw_buffer , CBW_LEN , cbw_callback , NULL ) ; 
+	 usb_fill_bulk_urb(my_urb, dev , usb_rcvbulkpipe(dev, bulk_out_endpointaddr), cbw_buffer , CBW_LEN , cbw_callback , NULL ) ; 
 
 
 	 int ret = usb_submit_urb(my_urb , GFP_KERNEL); 
@@ -198,14 +198,17 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	 return 0 ; 
 
 r_urb :
-	if(mu_urb) 
+	if(my_urb) 
 	{ 
 
-		pr_info("enrering  r_urb") ; 
+	 pr_info("enrering  r_urb") ; 
 	 usb_kill_urb(my_urb); 
 	 usb_free_urb(my_urb); 
 	 kfree(bulk_buf); 
-	kfree(cbw_buffer) ; 
+         kfree(cbw_buffer) ;
+       
+	 return 0 ; 
+
 	}else{ 
 	       pr_info(" it seems my_urb is not \n"); 
 	 	return 0 ; 
