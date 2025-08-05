@@ -45,10 +45,20 @@ static  void data_callback( struct urb *urb) ;
 static void  csw_callback(struct urb *urb); 
 
 /* USB  DEVICE ID TABLE  */ 
-const struct  usb_device_id  usb_table[] = 
-{  {  USB_INTERFACE_INFO( USB_CLASS_MASS_STORAGE , USB_SC_SCSI , USB_PR_BULK) },  
+/*const struct  usb_device_id  usb_table[] = 
+{  { .match_flags = USB_DEVICE_ID_MATCH_INT_INFO, 
+  .bInterfaceClass  = USB_CLASS_MASS_STORAGE, 
+  .bInterfaceSubClass  = USB_SC_SCSI, 
+  .bInterfaceProtocol  = USB_PR_BULK ,  },  
 	{}
 };
+*/ 
+
+const struct  usb_device_id  usb_table[] = 
+{ { USB_DEVICE( PID , VID  )},  
+	{}
+};
+
 
 MODULE_DEVICE_TABLE(usb,usb_table); 
 
