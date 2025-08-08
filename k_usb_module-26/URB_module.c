@@ -15,32 +15,40 @@
 #define CBW_LEN  31 
 
 
-/* GLOBAL VARIBALE */ 
+/******************************************** GLOABLA VARIBLES ****************************************/
+ __u8  bulk_in_endpointaddr = 0  ; 
+ __u8  bulk_out_endpointaddr  =  0 ; 
+ __le32  cbw_tag  =  0 ; 
 
+// scsi write varible // 
 unsigned char *data_buf = NULL;  
 struct urb *my_urb  = NULL ; 
+struct urb *data_urb = NULL ;
 
-struct urb *data_urb = NULL ; 
+// csw variable // 
+struct urb  *csw_urb ; 
 static char *csw_buffer = NULL ; 
-
-struct urb *csw_urb  = NULL ; 
+unsigned char *cbw_buffer = NULL; 
+// Scsi  read variable // 
 struct urb  *read_urb= NULL ;  
 unsigned char *read_buf = NULL ;
-unsigned char *cbw_buffer = NULL ; 
+
+// inquiry variable  // 
+struct urb *inquiry_urb ; 
+unsigned char *inquiry_buffer =NULL; 
 
  static  struct command_block_wrapper  my_cbw ; 
  
- __u8  bulk_in_endpointaddr = 0  ; 
- __u8  bulk_out_endpointaddr  =  0 ; 
- __le32  cbw_tag  =  0 ; 	
 
-
-/* FUNCTION PROTOTYPE */ 
+/***************************************** FUNCTION PROTOTYPE ******************************************/ 
 static int usb_probe( struct usb_interface *interface ,  const struct  usb_device_id *id);
 static void usb_disconnect( struct usb_interface *interface );
 static   void cbw_callback ( struct urb *urb ); 
 static  void data_callback( struct urb *urb) ; 
 static void  csw_callback(struct urb *urb); 
+
+
+/***************************************** USB DEVICE TABLE TEMPORARY***********************************/ 
 
 /* USB  DEVICE ID TABLE  */ 
 /*const struct  usb_device_id  usb_table[] = 
@@ -49,7 +57,26 @@ static void  csw_callback(struct urb *urb);
   .bInterfaceSubClass  = USB_SC_SCSI, 
   .bInterfaceProtocol  = USB_PR_BULK ,  },  
 	{}
-}; */ const struct  usb_device_id  usb_table[] = { {USB_INTERFACE_INFO(USB_CLASS_MASS_STORAGE , USB_SC_SCSI , USB_PR_BULK ) },  {} }; MODULE_DEVICE_TABLE(usb,usb_table); /* USB_DRIVER STRUCTURES */ static struct   usb_driver   exmp_usb_driver  = { .name = "URBS DRIVER" , .probe = usb_probe , .disconnect = usb_disconnect , .id_table =  usb_table }; 
+}; */ 
+
+
+// USB DEVICE ID TABLE // 
+const struct  usb_device_id  usb_table[] = { 
+	{USB_INTERFACE_INFO(USB_CLASS_MASS_STORAGE , USB_SC_SCSI , USB_PR_BULK ) }, 
+       	{} };
+MODULE_DEVICE_TABLE(usb,usb_table);
+
+
+
+/* USB_DRIVER STRUCTURES */ 
+static struct   usb_driver   exmp_usb_driver  =
+{ .name = "URBS DRIVER" ,
+       	.probe = usb_probe ,
+       	.disconnect = usb_disconnect ,
+       	.id_table =  usb_table
+}; 
+
+
 /*  command block wrapper structure */ 
 struct command_block_wrapper   { 
 	__le32 dCBWSignature ; 
@@ -74,7 +101,6 @@ struct command_status_wrapper  {
 
 
 /************************************************ USB  FUNCTIONS ****************************************/
-
 static int usb_probe ( struct  usb_interface *interface ,  const struct usb_device_id  *id)
 {
 	pr_info(" USB PROBE \n"); 
@@ -84,7 +110,8 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	struct usb_host_interface  *iface_desc = interface->cur_altsetting ; 
 
 
-	if((!dev   &&  !usb_get_dev(dev) ) || !iface_desc) 
+	if((!dev || !iface_desc))  
+		
 	{ 
 
 		pr_info(" NO DEV ||  NO IFACE_DESC \n"); 
@@ -148,23 +175,23 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	  memset(&my_cbw , 0 , sizeof(my_cbw)) ; 
 	 my_cbw.dCBWSignature = cpu_to_le32(0x43425355); 
 	 my_cbw.dCBWTag = cpu_to_le32(0x12345678); 
-	my_cbw.dCBWDataTransferLength = cpu_to_le32(8); 
+	my_cbw.dCBWDataTransferLength = cpu_to_le32(36); 
        	my_cbw.bmCBWFlags = 0x80;
        my_cbw.bCBWLUN = 0 ; 
 
-	my_cbw.bCBWCBLength =10 ; 
-	my_cbw.CBWCB[0] = 0x25;
-//      	
-//my_cbw.CBWCB[1] = 0x00 ;
-//
-//my_cbw.CBWCB[2] = 0x00 ;
-//
-//my_cbw.CBWCB[3] = 0x00 ;
-//
-//my_cbw.CBWCB[4] =  0x00 ;
-//
-//my_cbw.CBWCB[5] = 0x00;
-//
+	my_cbw.bCBWCBLength = 6 ; 
+	my_cbw.CBWCB[0] = 0x12;
+   	
+my_cbw.CBWCB[1] = 0x80 ;
+
+my_cbw.CBWCB[2] = 0x00 ;
+
+my_cbw.CBWCB[3] = 0x00 ;
+
+my_cbw.CBWCB[4] =   36  ;
+
+my_cbw.CBWCB[5] = 0x00;
+
 //my_cbw.CBWCB[6] = 0x00;
 //my_cbw.CBWCB[7] = 0x00;
 //
@@ -172,13 +199,21 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 //
 //my_cbw.CBWCB[9] = 0x00;
 //
-
+//
 
 
 	pr_info(" size of  sbw  :%ld\n ", sizeof(my_cbw)); 
 	memcpy(cbw_buffer , &my_cbw, sizeof(my_cbw)); 
 
 	pr_info(" strleng of  cbw_buffer :%ld\n ", sizeof(cbw_buffer)); 
+
+
+ 
+	usb_clear_halt(dev , bulk_in_endpointaddr); 	
+	usb_clear_halt(dev , bulk_out_endpointaddr); 
+
+
+
 
 	 usb_fill_bulk_urb(my_urb, dev , usb_sndbulkpipe(dev, bulk_out_endpointaddr), cbw_buffer , CBW_LEN , cbw_callback , NULL ) ; 
 
@@ -198,6 +233,8 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 
 	 return 0 ; 
 
+
+/* cleanups */
 r_urb :
 	if(my_urb) 
 	{ 
@@ -270,7 +307,19 @@ static void usb_disconnect ( struct usb_interface  *interface )
 		kfree(read_buf); 
 		read_buf = NULL ; 
 	} 
+ 
 
+	// clearing  inquiry scsi urb // 
+	if( inquiry_urb) 
+	{ 
+
+		usb_kill_urb(inquiry_urb); 
+		usb_free_urb(inquiry_urb); 
+		kfree(inquiry_buffer) ;
+		inquiry_buffer = NULL ; 
+	} 
+
+			
 	usb_clear_halt(dev, bulk_in_endpointaddr);
 
 	usb_clear_halt(dev, bulk_out_endpointaddr); 
@@ -316,101 +365,141 @@ static   void cbw_callback ( struct urb *urb )
 	cbw_tag = cbw->dCBWTag; 
 	
 
-//	pr_info("Received  CBW - Command : 0x%02x\n", cbw->CBWCB[0]); 
 
 	switch(cbw->CBWCB[0]) 
-	{ 
+	{
+	       // SCSI  WRITE COMMAND // 	
 		case 0x2A : 
 			pr_info(" SCSI WRITE COMMAD BEDU  COMMAND REVIEVED \n") ; 
 
-		data_buf = kmalloc(15 , GFP_KERNEL) ; 
-		if( data_buf ==NULL) 
-		{ 
-			pr_info(" DATA_BUFF ALLLOC_ERR\n") ; 
-			return ;
-		} 
+			data_buf = kmalloc(15 , GFP_KERNEL) ; 
+			if( data_buf ==NULL) 
+			{ 
+				pr_info(" DATA_BUFF ALLLOC_ERR\n") ; 
+				return ;
+			} 
 
 
-		unsigned char *new_Buff = "helloworld" ; 
+			unsigned char *new_Buff = "helloworld" ; 
+	
+
+	       		 strcpy(data_buf , new_Buff) ; 
+
+			data_urb = usb_alloc_urb(0, GFP_KERNEL); 
+			if( !data_urb) 
+			{ 
+				pr_info(" DATA_URB_ALL_ERR\n"); 
+				return ; 
+			} 
 
 
-	        strcpy(data_buf , new_Buff) ; 
 
-		data_urb = usb_alloc_urb(0, GFP_KERNEL); 
-		if( !data_urb) 
-		{ 
-			pr_info(" DATA_URB_ALL_ERR\n"); 
-			return ; 
-		} 
+			usb_fill_bulk_urb(data_urb ,urb->dev, usb_sndbulkpipe(urb->dev, bulk_out_endpointaddr), data_buf ,  15  ,  data_callback, NULL) ; 
 
+			int ret = usb_submit_urb(data_urb , GFP_KERNEL) ; 
+			if(ret) 
 
-
-		usb_fill_bulk_urb(data_urb ,urb->dev, usb_sndbulkpipe(urb->dev, bulk_out_endpointaddr), data_buf ,  15  ,  data_callback, NULL) ; 
-
-		int ret = usb_submit_urb(data_urb , GFP_KERNEL) ; 
-		if(ret) 
-
-		{ 
+			{ 
 
 			pr_info(" SEC SUBMISSION ERR\n"); 
-			 goto r_urb ; 
-		} 
+			} 
 
 
 			pr_info(" SEC URB SUMBIT SUCCESS \n"); 
 
 			break ; 
-		case 0x00:
-			pr_info(" SCSI TEST UNIT READY \n"); 
-			break ;
+
 
 		/* READ SCSIC COMMAND */ 
 		case 0x28 :  
 
-		pr_info("SCSI  READ (10) \n") ;
+			pr_info("SCSI  READ (10) \n") ;
 
-		read_buf = kmalloc(15 , GFP_KERNEL) ; 
+			read_buf = kmalloc(15 , GFP_KERNEL) ; 
 
-
-		if( read_buf ==NULL) 
-		{ 
-			pr_info(" read _BUFF ALLLOC_ERR\n") ; 
-			return ;
-		} 
-
-
-		read_urb = usb_alloc_urb(0, GFP_KERNEL); 
-		if( !read_urb) 
-		{ 
-			pr_info(" DATA_URB_ALL_ERR\n"); 
-			return ; 
-		} 
+	
+			if( read_buf ==NULL) 
+			{ 
+				pr_info(" read _BUFF ALLLOC_ERR\n") ; 
+				return ;
+			} 
 
 
+			read_urb = usb_alloc_urb(0, GFP_KERNEL); 
+			if( !read_urb) 
+			{ 
+				pr_info(" DATA_URB_ALL_ERR\n"); 
+				return ; 
+			} 
 
-		usb_fill_bulk_urb(read_urb ,urb->dev, usb_rcvbulkpipe(urb->dev, bulk_in_endpointaddr), read_buf ,  8   ,  data_callback, NULL) ; 
 
-		int result  = usb_submit_urb(read_urb , GFP_KERNEL) ; 
-		if(result) 
 
-		{ 
+			usb_fill_bulk_urb(read_urb ,urb->dev, usb_rcvbulkpipe(urb->dev, bulk_in_endpointaddr), read_buf ,  8   ,  data_callback, NULL) ; 
 
-			pr_info(" SEC SUBMISSION ERR\n"); 
-			 goto r_urb ; 
-		} 
+			int result  = usb_submit_urb(read_urb , GFP_KERNEL) ; 
+			if(result) 
+
+			{ 
+
+				pr_info(" SEC SUBMISSION ERR\n"); 
+				goto r_urb ; 
+			} 
 
 
 			pr_info(" SEC URB SUMBIT SUCCESS \n"); 
 
+			break ; 
 
 
-			break ;
+		// SCSI  TEST UNIT COMMAND // 
 		case 0x1A : 
 			pr_info(" SCSI MODE SENSE COMMAND RECIEVED \n"); 
-			break ; 
+			break ;
+
+
+		// SCSI  INQUIRY COMMAND // 	
 		case 0x12  : 
-			pr_info(" SCSI  inquiry  COmmand RECIEVED \n");  
+			
+			pr_info(" SCSI-INQUIRY_CMD REQ\n");  
+
+			inquiry_buffer = kmalloc( 36 , GFP_KERNEL); 
+			if(inquiry_buffer ==NULL ) 
+			{ 
+				pr_info("INQUIRY_BUF_ALLOC_ERR\n"); 
+				return ; 
+			} 
+
+			inquiry_urb = usb_alloc_urb(0, GFP_KERNEL); 
+			if(inquiry_urb==NULL) 
+			{ 
+				pr_info("INQUIRY_URB_ALLOC_ERR\n"); 
+				usb_kill_urb(inquiry_urb); 
+				usb_free_urb(inquiry_urb); 
+				kfree(inquiry_buffer) ;
+				inquiry_buffer = NULL ; 
+				 
+				return ; 
+			} 
+
+			usb_fill_bulk_urb(inquiry_urb , urb->dev , usb_rcvbulkpipe(urb->dev , bulk_in_endpointaddr), inquiry_buffer , 36 , data_callback,NULL) ; 
+
+			int urb_inquiry_result = usb_submit_urb(inquiry_urb , GFP_KERNEL) ; 
+			if( urb_inquiry_result) 
+			{ 
+				pr_info(" INQUIRY_URB_SUBMIT_ERR\n"); 
+				usb_kill_urb(inquiry_urb); 
+				usb_free_urb(inquiry_urb); 
+				kfree(inquiry_buffer) ;
+				inquiry_buffer = NULL ; 
+				usb_clear_halt(urb->dev, bulk_in_endpointaddr); 
+				return ; 
+			} 
+
+			pr_info(" INQUIRY_URB_SUBMISSION_ERR\n"); 
+
+			return  ;	
 			break ; 
+
 
 		default :
 			pr_warn(" Unhandled SCsi command :0x%02x\n", cbw->CBWCB[0]); 
