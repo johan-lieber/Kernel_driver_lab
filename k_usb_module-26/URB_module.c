@@ -175,18 +175,18 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 
 	my_cbw.bCBWCBLength =6 ; 
 	my_cbw.CBWCB[0] = 0x12 ;
-//      	
-//my_cbw.CBWCB[1] = 0x00 ;
-//
-//my_cbw.CBWCB[2] = 0x00 ;
-//
-//my_cbw.CBWCB[3] = 0x00 ;
-//
-//my_cbw.CBWCB[4] =  36 ;
-//
-//
-//my_cbw.CBWCB[5] = 0x00;
-//
+      	
+my_cbw.CBWCB[1] = 0x00 ;
+
+my_cbw.CBWCB[2] = 0x00 ;
+
+my_cbw.CBWCB[3] = 0x00 ;
+
+my_cbw.CBWCB[4] =  36 ;
+
+
+my_cbw.CBWCB[5] = 0x00;
+
 
 
 	pr_info(" size of  sbw  :%ld\n ", sizeof(my_cbw)); 
@@ -401,7 +401,7 @@ static   void data_callback  ( struct urb *urb )
 		usb_kill_urb(csw_urb); 
 		usb_free_urb(csw_urb); 
 		kfree(csw_buffer); 
-		return 0 ; 
+		return  ; 
 	} 
 
 
@@ -424,6 +424,34 @@ static   void csw_callback ( struct urb *urb )
 
 	pr_info(" csw callback function \n"); 
 
+
+	if(urb->status)
+	{
+		
+		pr_err("  CBW URB  FAILED WIH STATUS  : %d\n  && (%s) \n", urb->status , 
+		urb->status == -ESHUTDOWN ? "Device removed/shutdown" : 
+		urb->status == -EPIPE ?  "Endpoint stalled" : 
+		urb->status == -ENOENT ? " Urb  killed befroe submissio " : "Unkown err" ); 
+		return ; 
+	} 
+
+	struct command_status_wrapper *csw =  (struct  command_status_wrapper *)  urb->transfer_buffer; 
+
+	if( csw->dCSWSignature !=cpu_to_le32(0x43425355)) 
+	{ 
+		pr_err(" Imvalid CBW signature \n"); 
+		return ;
+	} 
+	if(csw->dCSWTag != cbw_tag) 
+	{ 
+		pr_info(" TAG NOT MATCHED \n"); 
+		return  ;
+	} 
+
+
+	pr_info("something went good \n"); 
+
+	
 	return ; 
 } 
 
