@@ -21,7 +21,6 @@ unsigned char *data_buf = NULL;
 struct urb *my_urb  = NULL ; 
 
 struct urb *data_urb = NULL ; 
-
 static char *csw_buffer = NULL ; 
 
 struct urb *csw_urb  = NULL ; 
@@ -49,28 +48,7 @@ static void  csw_callback(struct urb *urb);
   .bInterfaceSubClass  = USB_SC_SCSI, 
   .bInterfaceProtocol  = USB_PR_BULK ,  },  
 	{}
-};
-*/ 
-
-const struct  usb_device_id  usb_table[] = 
-{ {USB_INTERFACE_INFO(USB_CLASS_MASS_STORAGE , USB_SC_SCSI , USB_PR_BULK ) },  
-	{}
-};
-
-
-MODULE_DEVICE_TABLE(usb,usb_table); 
-
-
-
-/* USB_DRIVER STRUCTURES */ 
- static struct   usb_driver   exmp_usb_driver  = 
-{ 
-	.name = "URBS DRIVER" , 
-	.probe = usb_probe , 
-	.disconnect = usb_disconnect , 
-	.id_table =  usb_table 
-}; 
-
+}; */ const struct  usb_device_id  usb_table[] = { {USB_INTERFACE_INFO(USB_CLASS_MASS_STORAGE , USB_SC_SCSI , USB_PR_BULK ) },  {} }; MODULE_DEVICE_TABLE(usb,usb_table); /* USB_DRIVER STRUCTURES */ static struct   usb_driver   exmp_usb_driver  = { .name = "URBS DRIVER" , .probe = usb_probe , .disconnect = usb_disconnect , .id_table =  usb_table }; 
 /*  command block wrapper structure */ 
 struct command_block_wrapper   { 
 	__le32 dCBWSignature ; 
@@ -248,13 +226,19 @@ static void usb_disconnect ( struct usb_interface  *interface )
 	usb_kill_urb(my_urb) ; 
 	usb_free_urb(my_urb) ; 
 	kfree(cbw_buffer) ; 
+        my_urb = NULL ; 
+	cbw_buffer = NULL ;
+ 	
 	} 
 
 	if(data_urb) 
 	{ 
 	usb_kill_urb(data_urb); 
 	usb_free_urb(data_urb); 
-	kfree(data_buf); 
+	kfree(data_buf);
+       data_urb = NULL ; 
+	data_buf= NULL ; 
+
 	} 
 
 
@@ -263,7 +247,11 @@ static void usb_disconnect ( struct usb_interface  *interface )
 	usb_kill_urb(csw_urb); 
 	usb_free_urb(csw_urb); 
 	kfree(csw_buffer); 
+       csw_urb = NULL ; 
+	csw_buffer = NULL ; 
+
 	} 
+  	cbw_tag = 0 ; 
 
 	pr_info(" USB - DISCONNECTED - \n"); 
 	return ; 
