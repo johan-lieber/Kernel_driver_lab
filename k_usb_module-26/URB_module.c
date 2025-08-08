@@ -28,6 +28,8 @@ struct urb *csw_urb  = NULL ;
 
 unsigned char *cbw_buffer = NULL ; 
 
+ static  struct command_block_wrapper  my_cbw ; 
+ 
  __u8  bulk_in_endpointaddr = 0  ; 
  __u8  bulk_out_endpointaddr  =  0 ; 
  __le32  cbw_tag  =  0 ; 	
@@ -164,19 +166,33 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	 } 
 
 
- static  struct command_block_wrapper  my_cbw ; 
 	  memset(&my_cbw , 0 , sizeof(my_cbw)) ; 
 	 my_cbw.dCBWSignature = cpu_to_le32(0x43425355); 
 	 my_cbw.dCBWTag = cpu_to_le32(0x12345678); 
 	my_cbw.dCBWDataTransferLength = cpu_to_le32(36); 
-       	my_cbw.bmCBWFlags = 0x80; 
+       	my_cbw.bmCBWFlags = 0x00;
+       my_cbw.bCBWLUN = 0 ; 
+
 	my_cbw.bCBWCBLength =6 ; 
-	my_cbw.CBWCB[0] = 0x12 ; 
+	my_cbw.CBWCB[0] = 0x12 ;
+//      	
+//my_cbw.CBWCB[1] = 0x00 ;
+//
+//my_cbw.CBWCB[2] = 0x00 ;
+//
+//my_cbw.CBWCB[3] = 0x00 ;
+//
+//my_cbw.CBWCB[4] =  36 ;
+//
+//
+//my_cbw.CBWCB[5] = 0x00;
+//
 
 
-
+	pr_info(" size of  sbw  :%ld\n ", sizeof(my_cbw)); 
 	memcpy(cbw_buffer , &my_cbw, sizeof(my_cbw)); 
 
+	pr_info(" strleng of  cbw_buffer :%ld\n ", sizeof(cbw_buffer)); 
 
 	 usb_fill_bulk_urb(my_urb, dev , usb_sndbulkpipe(dev, bulk_out_endpointaddr), cbw_buffer , CBW_LEN , cbw_callback , NULL ) ; 
 
@@ -292,38 +308,39 @@ static   void cbw_callback ( struct urb *urb )
 
 
 
-			data_buf = kmalloc(36 , GFP_KERNEL) ; 
-			if( data_buf ==NULL) 
-			{ 
-				pr_info(" DATA_BUFF ALLLOC_ERR\n") ; 
-				return ;
-			} 
-
-			unsigned char *newBuff = " hello " ; 
-
-		       strcpy(data_buf , newBuff) ; 
-
-			data_urb = usb_alloc_urb(0, GFP_KERNEL); 
-			if( !data_urb) 
-			{ 
-				pr_info(" DATA_URB_ALL_ERR\n"); 
-				return ; 
-			} 
+		data_buf = kmalloc(36 , GFP_KERNEL) ; 
+		if( data_buf ==NULL) 
+		{ 
+			pr_info(" DATA_BUFF ALLLOC_ERR\n") ; 
+			return ;
+		} 
 
 
+	      // strcpy(data_buf , newBuff) ; 
 
-			usb_fill_bulk_urb(data_urb ,urb->dev, usb_sndbulkpipe(urb->dev, bulk_out_endpointaddr), data_buf ,  36  ,  data_callback, NULL) ; 
+		data_urb = usb_alloc_urb(0, GFP_KERNEL); 
+		if( !data_urb) 
+		{ 
+			pr_info(" DATA_URB_ALL_ERR\n"); 
+			return ; 
+		} 
 
-			int ret = usb_submit_urb(data_urb , GFP_KERNEL) ; 
-			if(ret) 
 
-			{ 
 
-				pr_info(" SEC SUBMISSION ERR\n"); 
-				 goto r_urb ; 
-			} 
+		usb_fill_bulk_urb(data_urb ,urb->dev, usb_rcvbulkpipe(urb->dev, bulk_in_endpointaddr), data_buf ,  36  ,  data_callback, NULL) ; 
 
- 		
+		int ret = usb_submit_urb(data_urb , GFP_KERNEL) ; 
+		if(ret) 
+
+		{ 
+
+			pr_info(" SEC SUBMISSION ERR\n"); 
+			 goto r_urb ; 
+		} 
+
+
+			pr_info(" SEC URB SUMBIT SUCCESS \n"); 
+
 			break ; 
 		case 0x00:
 			pr_info(" SCSI TEST UNIT READY \n"); 
@@ -348,11 +365,11 @@ static   void cbw_callback ( struct urb *urb )
 
 
 r_urb : 
-	usb_kill_urb(data_urb); 
-	usb_free_urb(data_urb); 
-	kfree(data_buf); 
-	return ; 
-	
+usb_kill_urb(data_urb); 
+usb_free_urb(data_urb); 
+kfree(data_buf); 
+return ; 
+
 	
 } 
  
@@ -373,19 +390,24 @@ static   void data_callback  ( struct urb *urb )
 	} 
 
 
-	struct command_status_wrapper *csw =( struct command_status_wrapper * )csw_buffer; 
-	csw->dCSWSignature = cpu_to_le32(0x53425355); 
-	csw->dCSWTag = cbw_tag  ; 
-	csw->dCSWDataResidue  = cpu_to_le32(0);
-	csw->bCSWStatus = 0 ; 
-
-
 	csw_urb   = usb_alloc_urb(0, GFP_KERNEL); 
 
-	usb_fill_bulk_urb(csw_urb, urb->dev,usb_sndbulkpipe(urb->dev , bulk_in_endpointaddr), csw_buffer, 13 , csw_callback, NULL) ; 
-	usb_submit_urb(csw_urb, GFP_KERNEL); 
+	usb_fill_bulk_urb(csw_urb, urb->dev,usb_rcvbulkpipe(urb->dev , bulk_in_endpointaddr), csw_buffer, 13 , csw_callback, NULL) ; 
+	int ret = usb_submit_urb(csw_urb, GFP_KERNEL); 
 
-	pr_info(" succss on sending  csw \n"); 
+	if( ret) 
+	{ 
+		pr_info(" SUBMISSION ERR : 3 \n"); 
+		usb_kill_urb(csw_urb); 
+		usb_free_urb(csw_urb); 
+		kfree(csw_buffer); 
+		return 0 ; 
+	} 
+
+
+
+
+	pr_info(" succss on revieveing   csw \n"); 
 
 
 	return ; 
