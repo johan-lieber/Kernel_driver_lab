@@ -7,6 +7,11 @@
 #include <linux/types.h> 
 #include <linux/byteorder/generic.h> 
 #include <linux/string.h>
+#include <scsi/scsi.h> 
+#include <scsi/scsi_host.h> 
+#include <scsi/scsi_cmnd.h> 
+#include <scsi/scsi_device.h> 
+#include <linux/workqueue.h> 
 
 
 #define  VID  (0X0781)
@@ -39,8 +44,7 @@ unsigned char *read_buf = NULL ;
 struct urb *inquiry_urb ; 
 unsigned char *inquiry_buffer =NULL; 
 
- static  struct command_block_wrapper  my_cbw ; 
- 
+static  struct command_block_wrapper  my_cbw ; 
 
 /***************************************** FUNCTION PROTOTYPE ******************************************/ 
 
@@ -49,23 +53,13 @@ static void usb_disconnect( struct usb_interface *interface );
 static   void cbw_callback ( struct urb *urb ); 
 static  void data_callback( struct urb *urb) ; 
 static void  csw_callback(struct urb *urb); 
-
+void  init_usb_protocols( struct work_struct *work); 
 
 /***************************************** USB DEVICE TABLE TEMPORARY***********************************/ 
 
-/* USB  DEVICE ID TABLE  */ 
-/*const struct  usb_device_id  usb_table[] = 
-{  { .match_flags = USB_DEVICE_ID_MATCH_INT_INFO, 
-  .bInterfaceClass  = USB_CLASS_MASS_STORAGE, 
-  .bInterfaceSubClass  = USB_SC_SCSI, 
-  .bInterfaceProtocol  = USB_PR_BULK ,  },  
-	{}
-}; */ 
-
-
 // USB DEVICE ID TABLE // 
 const struct  usb_device_id  usb_table[] = { 
-	{USB_INTERFACE_INFO(USB_CLASS_MASS_STORAGE , USB_SC_SCSI , USB_PR_BULK ) }, 
+	{USB_INTERFACE_INFO(USB_CLASS_MASS_STORAGE , USB_SC_SCSI , USB_PR_BULK ) },	
        	{} };
 MODULE_DEVICE_TABLE(usb,usb_table);
 
@@ -101,7 +95,20 @@ struct command_status_wrapper  {
 
 
 
+DECLARE_WORK(cbw_work, init_usb_protocols); 
 
+/* Scsi  command list */ 
+#define SCSI_TEST 0x00 
+#define SCSI_REQ_SENSE  0x03 
+#define SCSI_INQUIRY 0x12 
+#define SCSI_NODE_SENSE 0x1A 
+#define SCSI_START_STOP_UNIT 0x1B 
+#define SCSI_PREVEBT_MED_REM 0x1E 
+#define SCSI_READ  0x28
+#define SCSI_WRITE  0x2A 
+#define SCSI_READ_CAPACITY 0x25 
+
+struct usb_device *dev = NULL ; 
 
 /************************************************ USB  FUNCTIONS ****************************************/
 
@@ -110,7 +117,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	pr_info(" USB PROBE \n"); 
 
 
-	struct usb_device *dev  =  interface_to_usbdev(interface) ; 
+	dev  =  interface_to_usbdev(interface) ; 
 	struct usb_host_interface  *iface_desc = interface->cur_altsetting ; 
 
 
@@ -126,6 +133,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	usb_get_dev(dev) ; 
 
 
+	/* Setting up   bulk_in_endpointaddr and bulk_out_endpointaddr */ 
 	for(int i = 0 ; i < iface_desc->desc.bNumEndpoints ; i++ ) 
 	{ 
 		struct usb_endpoint_descriptor  *epd = &iface_desc->endpoint[i].desc; 
@@ -155,102 +163,122 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	pr_info(" bulk_out_endpointaddr :0x%02x\n", bulk_out_endpointaddr) ; 
 
 
-	 /*Allocating buffer  for CW_LEN */ 
-	 cbw_buffer = kmalloc(CBW_LEN , GFP_KERNEL) ; 
-	 if( cbw_buffer == NULL  ) 
-	 { 
-		 pr_info(" CW_BUF_ALLOC_ERR\n"); 
-		 return -ENOMEM ; 
-	 } 
+
+	 schedule_work(&cbw_work); 
 
 
-
-	 /* Allocating and  urb */ 
-	 cbw_urb = usb_alloc_urb(0, GFP_KERNEL) ; 
-	 
-	 if(!cbw_urb ) 
-	 {
-		 pr_info(" MY_URB ALLOC_ERRR\n"); 
-
-		 return -ENOMEM ; 
-	 } 
-
-
-	  memset(&my_cbw , 0 , sizeof(my_cbw)) ; 
-	 my_cbw.dCBWSignature = cpu_to_le32(0x43425355); 
-	 my_cbw.dCBWTag = cpu_to_le32(0x12345678); 
-       	 my_cbw.dCBWDataTransferLength = cpu_to_le32(512); 
-         my_cbw.bmCBWFlags = 0x80;
-         my_cbw.bCBWLUN = 0 ; 
-	 my_cbw.bCBWCBLength = 10;
-
-	my_cbw.CBWCB[0] = 0x28;
-	my_cbw.CBWCB[1] = 0x00;
-	my_cbw.CBWCB[2] = 0x00 ;
-	my_cbw.CBWCB[3] = 0x00 ;
-	my_cbw.CBWCB[4] =  0x00  ;
-	my_cbw.CBWCB[5] = 0x00;
-	my_cbw.CBWCB[6] = 0x00;
-	my_cbw.CBWCB[7] = 0x00;
-	my_cbw.CBWCB[8] = 0x01;
-	my_cbw.CBWCB[9] = 0x00;
-
-
-
-	memcpy(cbw_buffer , &my_cbw, sizeof(my_cbw)); 
- 
-	 usb_clear_halt(dev, usb_rcvbulkpipe(dev, bulk_in_endpointaddr));		 	 
-	 usb_clear_halt(dev, usb_sndbulkpipe(dev, bulk_out_endpointaddr));	
-
-	
-	 usb_fill_bulk_urb(cbw_urb, dev , usb_sndbulkpipe(dev, bulk_out_endpointaddr), cbw_buffer , CBW_LEN , cbw_callback , NULL ) ; 
-
-
-	 int ret = usb_submit_urb(cbw_urb , GFP_KERNEL); 
-	 
-	 if(ret) 
-	 { 
-		 pr_info(" URB SUBMISSION  ERR %d \n", ret) ; 
-		  
-		 goto r_urb ; 
-	 } 
-
-
- 
-	 pr_info(" CBW SEND SUCCESSFULL  \n"); 
+	 pr_info(" Pipes are ready \n"); 
 
 	 return 0 ; 
 
-
-/* cleanups */
-r_urb :
-	if(cbw_urb) 
-	{ 
-
-	 pr_info("CBW_URB_ERR - CLEANING CWB_URB \n");
-
-	 usb_kill_urb(cbw_urb); 
-	 usb_free_urb(cbw_urb); 
-         kfree(cbw_buffer) ;
-	 cbw_buffer = NULL; 
-	 cbw_urb =NULL; 
- 
-	 usb_clear_halt(dev, usb_rcvbulkpipe(dev, bulk_in_endpointaddr));		 	 
-	 usb_clear_halt(dev, usb_sndbulkpipe(dev, bulk_out_endpointaddr));	
-      
-	 return 0 ; 
-	
-	}else{ 
-	       pr_info(" NO CBW_URB_ERR \n"); 
-	 	return 0 ; 
-	} 
-	return 0 ; 
 
 
 
 		
 } 
 
+
+
+/* init_usb_protocol */ 
+void init_usb_protocols( struct work_struct *work) 
+{  
+
+	pr_info(" HELLO FROM INIT_USB_FUNC\n"); 
+	
+
+ /*Allocating buffer  for CW_LEN */ 
+ cbw_buffer = kmalloc(CBW_LEN , GFP_KERNEL) ; 
+ if( cbw_buffer == NULL  ) 
+ { 
+	 pr_info(" CW_BUF_ALLOC_ERR\n"); 
+	 return ; 
+ } 
+
+
+
+ /* Allocating and  urb */ 
+ cbw_urb = usb_alloc_urb(0, GFP_KERNEL) ; 
+ 
+ if(!cbw_urb ) 
+ {
+	 pr_info(" MY_URB ALLOC_ERRR\n"); 
+
+	 return  ; 
+ } 
+
+
+  memset(&my_cbw , 0 , sizeof(my_cbw)) ; 
+ my_cbw.dCBWSignature = cpu_to_le32(0x43425355); 
+ my_cbw.dCBWTag = cpu_to_le32(0x12345678); 
+ my_cbw.dCBWDataTransferLength = cpu_to_le32(36);
+ my_cbw.bmCBWFlags = 0x80;
+ my_cbw.bCBWLUN = 0 ; 
+ my_cbw.bCBWCBLength = 6  ;
+
+my_cbw.CBWCB[0] = 0x12;
+my_cbw.CBWCB[1] = 0x00;
+my_cbw.CBWCB[2] = 0x00 ;
+my_cbw.CBWCB[3] = 0x00 ;
+my_cbw.CBWCB[4] =  0x36 ;
+my_cbw.CBWCB[5] = 0x00;
+// 
+// my_cbw.CBWCB[6] = 0x00;
+// my_cbw.CBWCB[7] = 0x00;
+// my_cbw.CBWCB[8] = 0x01;
+// my_cbw.CBWCB[9] = 0x00;
+// 
+// 
+
+memcpy(cbw_buffer , &my_cbw, sizeof(my_cbw)); 
+// 
+//  usb_clear_halt(dev, usb_rcvbulkpipe(dev, bulk_in_endpointaddr));		 	 
+//  usb_clear_halt(dev, usb_sndbulkpipe(dev, bulk_out_endpointaddr));	
+// 
+
+ usb_fill_bulk_urb(cbw_urb, dev , usb_sndbulkpipe(dev, bulk_out_endpointaddr), cbw_buffer , CBW_LEN , cbw_callback , NULL ) ; 
+
+
+ int ret = usb_submit_urb(cbw_urb , GFP_KERNEL); 
+ 
+ if(ret) 
+ { 
+	 pr_info(" URB SUBMISSION  ERR %d \n", ret) ; 
+	  
+	 goto r_urb ; 
+ } 
+
+
+ pr_info("CBW_SEND\n"); 
+
+
+	return ;
+
+/* cleanups */
+r_urb :
+if(cbw_urb) 
+{ 
+
+ pr_info("CBW_URB_ERR - CLEANING CWB_URB \n");
+
+ usb_kill_urb(cbw_urb); 
+ usb_free_urb(cbw_urb); 
+        kfree(cbw_buffer) ;
+ cbw_buffer = NULL; 
+ cbw_urb =NULL; 
+
+ usb_clear_halt(dev, usb_rcvbulkpipe(dev, bulk_in_endpointaddr));		 	 
+ usb_clear_halt(dev, usb_sndbulkpipe(dev, bulk_out_endpointaddr));	
+     
+ return  ; 
+
+}else{ 
+       pr_info(" NO CBW_URB_ERR \n"); 
+ 	return ; 
+
+} 
+
+
+}
 
 /* Usb  Disconnect */
 static void usb_disconnect ( struct usb_interface  *interface ) 
@@ -262,7 +290,10 @@ static void usb_disconnect ( struct usb_interface  *interface )
 
 	/*   -- CLEAN UPS ON DISCONNECT  -- */  
 
+
+
 	if(cbw_urb) 
+	
 	{	
 	usb_kill_urb(cbw_urb) ; 
 	usb_free_urb(cbw_urb) ; 
