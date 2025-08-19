@@ -157,6 +157,8 @@ struct  my_usb_storage {
 	struct usb_device *udev  ; 
 	struct usb_interface *intf ; 
         struct command_block_wrapper  my_cbw ;
+	struct command_status_wrapper my_csw; 
+
         struct work_struct my_work ; 	
         /* pipes */ 
 
@@ -228,7 +230,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	// Allocating   buffers and URBS    
 	
 	/* For Inquriry scsi command */
-	dev->cbw_buffer = kmalloc(31 , GFP_KERNEL) ; 
+	dev->cbw_buffer = kmalloc(36 , GFP_KERNEL) ; 
 	if( dev->cbw_buffer ==NULL) 
 	{ 
 		pr_err(" cbw_buffer_alloc_err\n"); 
@@ -454,10 +456,13 @@ void init_usb_protocols( struct work_struct *work)
 	dev = container_of(work, struct my_usb_storage , my_work) ; 
 
 
-        	       
 
 
-        SCSI_TEST_UNIT_READY(dev->my_cbw); 
+	SCSI_INQUIRY(dev->my_cbw , 36 ) ; 
+	
+	memcpy(dev->cbw_buffer ,&dev->my_cbw, 36) ; 	
+
+       // SCSI_TEST_UNIT_READY(dev->my_cbw); 
 
  
 
@@ -590,8 +595,9 @@ static   void cbw_callback ( struct urb *urb )
 { 
 	pr_info("-- Cbw_callback function -- \n");
 
-	struct my_usb_storage *dev  =  urb->context ; 
+	struct my_usb_storage *dev  =  urb->context ;
         	       
+	pr_info(" bulak_in_endpointaddr :0x%02x\n", dev->bulk_in_endpointaddr) ; 
 
 	if(urb->status)
 	{
@@ -693,7 +699,7 @@ static   void cbw_callback ( struct urb *urb )
 			
 			pr_info(" SCSI-INQUIRY_CMD REQ\n");  
 
-			
+		
 			usb_fill_bulk_urb(dev->inquiry_urb , dev->udev , usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr), dev->inquiry_buffer , 36 , data_callback,dev) ; 
 
 			int urb_inquiry_result = usb_submit_urb(dev->inquiry_urb , GFP_KERNEL) ; 
@@ -757,8 +763,10 @@ static   void data_callback  ( struct urb *urb )
 	
 	usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr)); 
        	usb_clear_halt(dev->udev, usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr)); 
-	
-	usb_fill_bulk_urb(dev->csw_urb,dev->udev,usb_rcvbulkpipe(dev->udev  , dev->bulk_in_endpointaddr), dev->csw_buffer, 13 , csw_callback, dev) ; 
+
+	memcpy(dev->csw_buffer , &dev->my_csw, CSW_LEN) ; 
+
+	usb_fill_bulk_urb(dev->csw_urb,dev->udev,usb_rcvbulkpipe(dev->udev  , dev->bulk_in_endpointaddr), dev->csw_buffer, CSW_LEN , csw_callback, dev) ; 
 	int ret = usb_submit_urb(dev->csw_urb, GFP_KERNEL); 
 
 	if( ret) 
