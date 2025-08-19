@@ -26,7 +26,7 @@
 	memset(&(cbw), 0 , sizeof(cbw));  \
 	(cbw).dCBWSignature = cpu_to_le32(0x43425455); \
 	(cbw).dCBWTag = cpu_to_le32(0x12345678) ; \
-	(cbw).dCBWDataTransferLength = cpu_to_le32(36); \
+	(cbw).dCBWDataTransferLength = cpu_to_le32(0); \
 	(cbw).bmCBWFlags = 0x00; \
 	(cbw).bCBWLUN = 0 ;\
 	(cbw).bCBWCBLength = 6 ; \
@@ -207,6 +207,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	dev->intf = interface; 
 	usb_set_intfdata(interface, dev); 
 
+	dev = dev ; 
 	
 	struct usb_host_interface *iface_desc ; 
 	iface_desc = interface->cur_altsetting ;
@@ -227,7 +228,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	// Allocating   buffers and URBS    
 	
 	/* For Inquriry scsi command */
-	dev->cbw_buffer = kmalloc(36 , GFP_KERNEL) ; 
+	dev->cbw_buffer = kmalloc(31 , GFP_KERNEL) ; 
 	if( dev->cbw_buffer ==NULL) 
 	{ 
 		pr_err(" cbw_buffer_alloc_err\n"); 
@@ -451,6 +452,7 @@ void init_usb_protocols( struct work_struct *work)
 	struct my_usb_storage *dev ; 
 
 	dev = container_of(work, struct my_usb_storage , my_work) ; 
+
 
         	       
 
