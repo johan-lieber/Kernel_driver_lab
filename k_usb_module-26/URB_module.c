@@ -116,15 +116,6 @@ MODULE_DEVICE_TABLE(usb,usb_table);
 
 
 
-/* USB_DRIVER STRUCTURES */ 
-static struct   usb_driver   exmp_usb_driver  =
-{ .name = "URBS DRIVER" ,
-       	.probe = usb_probe ,
-       	.disconnect = usb_disconnect ,
-       	.id_table =  usb_table
-}; 
-
-
 /*  command block wrapper structure */ 
 struct command_block_wrapper   { 
 	__le32 dCBWSignature ; 
@@ -194,6 +185,16 @@ static void  csw_callback(struct urb *urb);
 void  init_usb_protocols( struct work_struct *work); 
 int usb_clear_buffer_and_urb( struct my_usb_storage *dev);
 int usb_alloc_buffer_and_urb( struct my_usb_storage *dev) ; 
+
+
+ 
+/* USB_DRIVER STRUCTURES */ 
+static struct   usb_driver   exmp_usb_driver  =
+{ .name = "URBS DRIVER" ,
+       	.probe = usb_probe ,
+       	.disconnect = usb_disconnect ,
+       	.id_table =  usb_table
+}; 
 
 
 /************************************************ USB  FUNCTIONS ****************************************/
