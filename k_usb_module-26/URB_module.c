@@ -47,14 +47,18 @@
 
 #define  SCSI_INQUIRY(cbw, alloc_len) do  { \
 	memset(&(cbw), 0 , sizeof(cbw)) ; \
-	(cbw).dCBWSignature = cpu_to_le32(0x43425455) ;\
+	(cbw).dCBWSignature = cpu_to_le32(0x43425355) ;\
 	(cbw).dCBWTag = cpu_to_le32(0x12345678) ; \
 	(cbw).dCBWDataTransferLength = cpu_to_le32(alloc_len); \
-	(cbw).bmCBWFlags = 0x80; \
+	(cbw).bmCBWFlags = 0x00; \
 	(cbw).bCBWLUN = 0 ;\
 	(cbw).bCBWCBLength = 6 ; \
         (cbw).CBWCB[0] = 0x12 ; \
+        (cbw).CBWCB[1] = 0x00 ; \
+        (cbw).CBWCB[2] = 0x00 ; \
+        (cbw).CBWCB[3] = 0x00 ; \
 	(cbw).CBWCB[4] =(alloc_len); \
+        (cbw).CBWCB[5] = 0x00 ; \
 }while(0) 
 
 #define SCSI_READ_CAPACITY_10(cbw) do { \
@@ -230,7 +234,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	// Allocating   buffers and URBS    
 	
 	/* For Inquriry scsi command */
-	dev->cbw_buffer = kmalloc(36 , GFP_KERNEL) ; 
+	dev->cbw_buffer = kmalloc(CBW_LEN , GFP_KERNEL) ; 
 	if( dev->cbw_buffer ==NULL) 
 	{ 
 		pr_err(" cbw_buffer_alloc_err\n"); 
@@ -460,7 +464,7 @@ void init_usb_protocols( struct work_struct *work)
 
 	SCSI_INQUIRY(dev->my_cbw , 36 ) ; 
 	
-	memcpy(dev->cbw_buffer ,&dev->my_cbw, 36) ; 	
+	memcpy(dev->cbw_buffer ,&dev->my_cbw,sizeof(dev->my_cbw)) ; 	
 
        // SCSI_TEST_UNIT_READY(dev->my_cbw); 
 
