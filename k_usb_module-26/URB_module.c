@@ -50,7 +50,7 @@
 	(cbw).dCBWSignature = cpu_to_le32(0x43425355) ;\
 	(cbw).dCBWTag = cpu_to_le32(0x12345678) ; \
 	(cbw).dCBWDataTransferLength = cpu_to_le32(alloc_len); \
-	(cbw).bmCBWFlags = 0x00; \
+	(cbw).bmCBWFlags = 0x80; \
 	(cbw).bCBWLUN = 0 ;\
 	(cbw).bCBWCBLength = 6 ; \
         (cbw).CBWCB[0] = 0x12 ; \
@@ -202,7 +202,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	pr_info(" USB PROBE \n"); 
 
 	struct  my_usb_storage  *dev ;
-       	dev = kzalloc(sizeof(&dev) , GFP_KERNEL) ; 
+       	dev = kzalloc(sizeof(*dev) , GFP_KERNEL) ; 
 	if( dev ==NULL) 
 	{ 
 		pr_info("Dev_alloc_error\n"); 
@@ -464,7 +464,7 @@ void init_usb_protocols( struct work_struct *work)
 
 	SCSI_INQUIRY(dev->my_cbw , 36 ) ; 
 	
-	memcpy(dev->cbw_buffer ,&dev->my_cbw,sizeof(dev->my_cbw)) ; 	
+	memcpy(dev->cbw_buffer ,&dev->my_cbw, CBW_LEN) ; 	
 
        // SCSI_TEST_UNIT_READY(dev->my_cbw); 
 
@@ -612,10 +612,6 @@ static   void cbw_callback ( struct urb *urb )
 			pr_info(" ENDPOINT STALLED \n"); 
 
 	
-			usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr));		 	 
-			usb_clear_halt(dev->udev, usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr));	
-
-
 			return ; 
 		} 
 
@@ -629,7 +625,7 @@ static   void cbw_callback ( struct urb *urb )
  	 struct command_block_wrapper *cbw  =  (struct  command_block_wrapper *)  urb->transfer_buffer; 
 
 
-	if(cbw->dCBWSignature !=cpu_to_le32(0x43425455)) 
+	if(cbw->dCBWSignature !=cpu_to_le32(0x43425355)) 
 	{ 
 		pr_err(" Invalid   cbw signature \n"); 
 		return ; 
@@ -702,6 +698,11 @@ static   void cbw_callback ( struct urb *urb )
 		case 0x12  : 
 			
 			pr_info(" SCSI-INQUIRY_CMD REQ\n");  
+
+
+	usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr));		 	 
+	usb_clear_halt(dev->udev, usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr));	
+
 
 		
 			usb_fill_bulk_urb(dev->inquiry_urb , dev->udev , usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr), dev->inquiry_buffer , 36 , data_callback,dev) ; 
