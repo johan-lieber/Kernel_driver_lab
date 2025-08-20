@@ -19,12 +19,12 @@
 #define BUF_SIZE 512 
 #define CBW_LEN  31
 #define CSW_LEN 13 
-
+#define CBW_SIG 0x43425355 
 
 /* Scsi command macros */ 
 #define SCSI_TEST_UNIT_READY(cbw)   do{ \
 	memset(&(cbw), 0 , sizeof(cbw));  \
-	(cbw).dCBWSignature = cpu_to_le32(0x43425455); \
+	(cbw).dCBWSignature = cpu_to_le32(CBW_SIG); \
 	(cbw).dCBWTag = cpu_to_le32(0x12345678) ; \
 	(cbw).dCBWDataTransferLength = cpu_to_le32(0); \
 	(cbw).bmCBWFlags = 0x00; \
@@ -35,8 +35,8 @@
 
 #define  SCSI_REQUEST_SENSE(cbw , alloc_len) do { \
 	memset(&(cbw), 0 , sizeof(cbw)) ; \
-	(cbw).dCBWSignature = cpu_to_le32(0x43425455) ;\
-	(cbw).dCBWTag = cpu_to_le32(0x12345678) ; \
+	(cbw).dCBWSignature = cpu_to_le32(CBW_SIG) ;\
+       	(cbw).dCBWTag = cpu_to_le32(0x12345678) ; \
 	(cbw).dCBWDataTransferLength = cpu_to_le32(alloc_len); \
 	(cbw).bmCBWFlags = 0x80; \
 	(cbw).bCBWLUN = 0 ;\
@@ -47,7 +47,7 @@
 
 #define  SCSI_INQUIRY(cbw, alloc_len) do  { \
 	memset(&(cbw), 0 , sizeof(cbw)) ; \
-	(cbw).dCBWSignature = cpu_to_le32(0x43425355) ;\
+	(cbw).dCBWSignature = cpu_to_le32(CBW_SIG) ;\
 	(cbw).dCBWTag = cpu_to_le32(0x12345678) ; \
 	(cbw).dCBWDataTransferLength = cpu_to_le32(alloc_len); \
 	(cbw).bmCBWFlags = 0x80; \
@@ -63,7 +63,7 @@
 
 #define SCSI_READ_CAPACITY_10(cbw) do { \
 	memset(&(cbw), 0 , sizeof(cbw)) ; \
-	(cbw).dCBWSignature = cpu_to_le32(0x43425455) ;\
+	(cbw).dCBWSignature = cpu_to_le32(CBW_SIG) ;\
 	(cbw).dCBWTag = cpu_to_le32(0x12345678) ; \
 	(cbw).dCBWDataTransferLength = cpu_to_le32(8); \
 	(cbw).bmCBWFlags = 0x80; \
@@ -74,7 +74,7 @@
 
 #define SCSI_READ_10( cbw, lba  , num_blocks , block_size ) do { \
 	memset(&(cbw), 0 , sizeof(cbw)) ; \
-	(cbw).dCBWSignature = cpu_to_le32(0x43425455) ;\
+	(cbw).dCBWSignature = cpu_to_le32(CBW_SIG) ;\
 	(cbw).dCBWTag = cpu_to_le32(0x12345678) ; \
 	(cbw).dCBWDataTransferLength = cpu_to_le32((num_blocks)*  (block_size)); \
 	(cbw).bmCBWFlags = 0x80; \
@@ -91,7 +91,7 @@
 
 #define SCSIWRITE_10(cbw , lba , num_blocks, block_size) do {  \
 	memset(&(cbw), 0 , sizeof(cbw)) ; \
-	(cbw).dCBWSignature = cpu_to_le32(0x43425455) ;\
+	(cbw).dCBWSignature = cpu_to_le32(CBW_SIG) ;\
 	(cbw).dCBWTag = cpu_to_le32(0x12345678) ; \
 	(cbw).dCBWDataTransferLength = cpu_to_le32((num_blocks)*  (block_size)); \
 	(cbw).bmCBWFlags = 0x00; \
@@ -105,15 +105,6 @@
 	(cbw).CBWCB[5] = ((num_blocks)  >> 8 ) & 0xFF ; \
 	(cbw).CBWCB[6] = (num_blocks)  & 0xFF ; \
 }while(0)   
-
-/***************************************** FUNCTION PROTOTYPE ******************************************/ 
-
-static int usb_probe( struct usb_interface *interface ,  const struct  usb_device_id *id);
-static void usb_disconnect( struct usb_interface *interface );
-static   void cbw_callback ( struct urb *urb ); 
-static  void data_callback( struct urb *urb) ; 
-static void  csw_callback(struct urb *urb); 
-void  init_usb_protocols( struct work_struct *work); 
 
 /***************************************** USB DEVICE TABLE TEMPORARY***********************************/ 
 
@@ -154,9 +145,7 @@ struct command_status_wrapper  {
 } __attribute__((packed)); 
 
 
-
-
-/* Custom structuer for global variables */ 
+/* Custom structure for global variables */ 
 struct  my_usb_storage { 
 	struct usb_device *udev  ; 
 	struct usb_interface *intf ; 
@@ -195,6 +184,18 @@ struct  my_usb_storage {
 }; 
 
  
+/***************************************** FUNCTION PROTOTYPE ******************************************/ 
+
+static int usb_probe( struct usb_interface *interface ,  const struct  usb_device_id *id);
+static void usb_disconnect( struct usb_interface *interface );
+static   void cbw_callback ( struct urb *urb ); 
+static  void data_callback( struct urb *urb) ; 
+static void  csw_callback(struct urb *urb); 
+void  init_usb_protocols( struct work_struct *work); 
+int usb_clear_buffer_and_urb( struct my_usb_storage *dev);
+int usb_alloc_buffer_and_urb( struct my_usb_storage *dev) ; 
+
+
 /************************************************ USB  FUNCTIONS ****************************************/
 
 static int usb_probe ( struct  usb_interface *interface ,  const struct usb_device_id  *id)
@@ -229,10 +230,416 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	} 
 
 
+
+	/* Calling allocation function */ 
+        int  usb_alloc_return = 	usb_alloc_buffer_and_urb( dev) ; 
+	if( usb_alloc_return ) 
+	{ 
+		pr_err("Buffer allocation error\n"); 
+		return -EINVAL ;
+	} 
+
+
+
+
+	/* Setting up   bulk_in_endpointaddr and bulk_out_endpointaddr */ 
+	for(int i = 0 ; i < iface_desc->desc.bNumEndpoints ; i++ ) 
+	{ 
+		struct usb_endpoint_descriptor  *epd = &iface_desc->endpoint[i].desc; 
+		
+		if(usb_endpoint_is_bulk_in(epd)) 
+		{ 
+			dev->bulk_in_endpointaddr =  epd->bEndpointAddress ; 
+		} 
+
+		if(usb_endpoint_is_bulk_out(epd))
+		{ 
+			dev->bulk_out_endpointaddr = epd->bEndpointAddress; 
+		} 
+	} 
+
+
+	if(!dev->bulk_in_endpointaddr && !dev->bulk_out_endpointaddr) 
+	{ 
+		dev_err(&interface->dev , " Bad endpoint address  \n") ; 
+		return  -ENODEV ; 
+	
+	} 
+
+
+	pr_info(" bulk_in_endpointaddr :0x%02x\n", dev->bulk_in_endpointaddr) ; 
+
+	pr_info(" bulk_out_endpointaddr :0x%02x\n", dev->bulk_out_endpointaddr) ; 
+
+
+	/* Creating workqueue */ 
+	INIT_WORK(&dev->my_work, init_usb_protocols) ;
+
+
+
+	/* Scheduling  CBW   in  workqyeue */ 
+	schedule_work(&dev->my_work); 
+
+	 
+	pr_info(" -- DEVICE  READY --\n"); 
+
+	return 0 ; 
+		
+}
+
+
  
 
-	// Allocating   buffers and URBS    
+/* Init_usb_protocol */ 
+void init_usb_protocols( struct work_struct *work) 
+{  
+
+	pr_info(" -USB_WORKQUEUE_FUNCTION-\n"); 
+
+
+
+	struct my_usb_storage *dev ; 
+
+	dev = container_of(work, struct my_usb_storage , my_work) ; 
+
+
+
+
+	SCSI_INQUIRY(dev->my_cbw , 36 ) ; 
 	
+	memcpy(dev->cbw_buffer ,&dev->my_cbw, CBW_LEN) ; 	
+
+       // SCSI_TEST_UNIT_READY(dev->my_cbw); 
+
+ 
+
+	usb_fill_bulk_urb(dev->cbw_urb, dev->udev , usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr), dev->cbw_buffer , CBW_LEN , cbw_callback , dev ) ; 
+
+
+	 int ret = usb_submit_urb(dev->cbw_urb , GFP_KERNEL); 
+ 
+	 if(ret) 
+	 { 
+		 pr_info("  Cbw submission error :[%d] \n", ret) ; 
+	  
+		 goto r_urb ; 
+	 } 
+
+
+	 pr_info("Cbw  send successfully [ OK ] \n"); 
+
+
+	return ;
+
+/* Cleanups */
+r_urb :
+	if(dev->cbw_urb) 
+	{ 
+
+	 pr_info("cbw_urb_err : cleaning.... \n");
+
+	 usb_kill_urb(dev->cbw_urb); 
+	 usb_free_urb(dev->cbw_urb); 
+	 kfree(dev->cbw_buffer) ;
+	 dev->cbw_buffer = NULL; 
+	 dev->cbw_urb =NULL; 
+	 return  ; 
+
+	}else{ 
+	       pr_info(" No_cbw_urb_error \n"); 
+	 	return ; 
+
+	} 
+
+}
+
+
+
+/* Cbw_callback function */ 
+static   void cbw_callback ( struct urb *urb )
+{ 
+	pr_info("-- Cbw_callback function -- \n");
+
+	struct my_usb_storage *dev  =  urb->context ;
+        	       
+	pr_info(" bulak_in_endpointaddr :0x%02x\n", dev->bulk_in_endpointaddr) ; 
+
+	if(urb->status)
+	{
+
+		if( urb->status == EPIPE ) 
+		{ 
+
+			pr_info(" ENDPOINT STALLED \n"); 
+
+	
+			return ; 
+		} 
+
+		pr_err("  CBW URB  FAILED WIH STATUS  : %d\n  && (%s) \n", urb->status , 
+		urb->status == -ESHUTDOWN ? "Device removed/shutdown" : 
+		urb->status == -ENOENT ? " Urb  killed befroe submissio " : "Unkown err" ); 
+		return ; 
+	}  
+	
+
+ 	 struct command_block_wrapper *cbw  =  (struct  command_block_wrapper *)  urb->transfer_buffer; 
+
+
+	if(cbw->dCBWSignature !=cpu_to_le32(CBW_SIG)) 
+	{ 
+		pr_err(" Invalid   cbw signature \n"); 
+		return ; 
+	}
+
+
+	dev->cbw_tag = le32_to_cpu(cbw->dCBWTag);  
+	
+
+	switch(cbw->CBWCB[0]) 
+	{
+	       // SCSI  WRITE COMMAND // 	
+		case 0x2A : 
+			pr_info(" SCSI WRITE COMMAD BEDU  COMMAND REVIEVED \n") ; 
+
+
+			usb_fill_bulk_urb(dev->write_urb ,dev->udev, usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr), dev->write_buffer ,  15  ,  data_callback, dev) ; 
+
+			int ret = usb_submit_urb(dev->write_urb , GFP_KERNEL) ; 
+			if(ret) 
+
+			{ 
+				pr_info("  SCSI_WRITE_URB_SUB_ERR\n");   
+				usb_kill_urb(dev->write_urb); 
+				usb_free_urb(dev->write_urb);
+				kfree(dev->write_buffer); 
+				dev->write_buffer =NULL; 
+				dev->write_urb = NULL; 
+				return ; 
+
+			} 
+
+
+			
+			pr_info(" WRITE_URB_SUB_SUCCESS \n");
+			
+		       	break ; 
+
+
+		/* READ SCSIC COMMAND */ 
+		case 0x28 :  
+
+			pr_info("SCSI  READ (10) \n") ;
+
+
+			usb_fill_bulk_urb(dev->read_urb ,dev->udev, usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr), dev->read_buf ,  512   ,  data_callback,dev) ; 
+
+			int result  = usb_submit_urb(dev->read_urb , GFP_KERNEL) ; 
+			if(result) 
+
+			{ 
+
+				pr_info(" READ_URB_SUB_ERR\n"); 
+				goto r_urb ; 
+			} 
+
+
+			pr_info(" SEC URB SUMBIT SUCCESS \n"); 
+
+			break ; 
+
+
+		// SCSI  TEST UNIT COMMAND // 
+		case 0x1A : 
+			pr_info(" SCSI MODE SENSE COMMAND RECIEVED \n"); 
+			break ;
+
+
+		// SCSI  INQUIRY COMMAND // 	
+		case 0x12  : 
+			
+			pr_info(" SCSI-INQUIRY_CMD REQ\n");  
+	
+		
+			usb_fill_bulk_urb(dev->inquiry_urb , dev->udev , usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr), dev->inquiry_buffer , 36 , data_callback,dev) ; 
+
+			int urb_inquiry_result = usb_submit_urb(dev->inquiry_urb , GFP_KERNEL) ; 
+			if( urb_inquiry_result) 
+			{ 
+				pr_info(" INQUIRY_URB_SUBMIT_ERR\n"); 
+				usb_kill_urb(dev->inquiry_urb); 
+				usb_free_urb(dev->inquiry_urb); 
+				kfree(dev->inquiry_buffer) ;
+				dev->inquiry_buffer = NULL ;
+			        dev->inquiry_urb = NULL; 
+
+				return ; 
+			} 
+
+			
+			pr_info(" INQUIRY_URB_SUBMISSION_SUCCESS\n"); 
+			break ; 
+
+
+		default :
+			pr_warn(" SCSI UNKNOWN COMMAND :0x%02x\n", cbw->CBWCB[0]); 
+			break ; 
+	}
+
+	return ; 
+
+
+
+r_urb : 
+usb_kill_urb(dev->read_urb); 
+usb_free_urb(dev->read_urb); 
+kfree(dev->read_buf);
+dev->read_urb=NULL; 
+dev->read_buf = NULL ; 
+return ; 
+
+	
+} 
+ 
+
+
+/* data call_back function */ 
+static   void data_callback  ( struct urb *urb )
+{ 
+	
+	pr_info("  -DATA CALLBACK FN -\n");
+	struct my_usb_storage *dev = urb->context ;  
+
+       unsigned char *buffer = urb->transfer_buffer; 
+
+	uint32_t  max_lba  = be32_to_cpu(*(uint32_t *) &buffer[0]); 
+
+	uint32_t  block_size  = be32_to_cpu(*(uint32_t *) &buffer[4]);
+
+
+	pr_info(" max_lba :%u\n", max_lba); 
+	pr_info(" BLOCK sizev: %u bytes \n", block_size); 
+
+
+	usb_fill_bulk_urb(dev->csw_urb,dev->udev,usb_rcvbulkpipe(dev->udev  , dev->bulk_in_endpointaddr), dev->csw_buffer, CSW_LEN , csw_callback, dev) ; 
+	int ret = usb_submit_urb(dev->csw_urb, GFP_KERNEL); 
+
+	if( ret) 
+	{ 
+		pr_info(" SUBMISSION ERR : 3 \n"); 
+		usb_kill_urb(dev->csw_urb); 
+		usb_free_urb(dev->csw_urb); 
+		kfree(dev->csw_buffer);
+	       	dev->csw_buffer = NULL ; 
+		dev->csw_urb = NULL ; 	
+		return  ; 
+	} 
+
+
+
+
+	pr_info(" - CSW RECIEVED -  \n"); 
+
+
+	return ; 
+
+
+
+
+}
+
+
+
+/* csw_callback function */ 
+static   void csw_callback( struct urb *urb ) 
+{ 
+
+	struct my_usb_storage *dev = urb->context ;  
+
+
+ 
+
+	pr_info(" csw callback function \n");
+	pr_info("  CSW CALLBACK STATUS : %d\n",urb->status); 
+
+
+	if(urb->status)
+	{	
+		urb->status == -ENOENT  ? usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr)) , usb_clear_halt(dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr)) : 
+	
+			
+		pr_err("  CBW URB  FAILED WIH STATUS  : %d\n  && (%s) \n", urb->status , 
+		urb->status == -ESHUTDOWN ? "Device removed/shutdown" : 
+		urb->status == -EPIPE ?  "Endpoint stalled" : " HEHE " ) ;  
+	//	urb->status == -ENOENT ? " Urb  killed befroe submissio " : "Unkown err" ); 
+		return ; 
+	} 
+	struct command_status_wrapper *csw =  (struct  command_status_wrapper *)  urb->transfer_buffer; 
+
+	if( csw->dCSWSignature !=cpu_to_le32(CBW_SIG)) 
+	{ 
+		pr_err(" Imvalid CBW signature \n"); 
+		return ;
+	} 
+	if(le32_to_cpu(csw->dCSWTag)  != dev->cbw_tag) 
+	{ 
+		pr_info(" TAG NOT MATCHED \n"); 
+		return  ;
+	} 
+
+
+	pr_info("something went good \n"); 
+
+	
+	return ; 
+} 
+
+
+
+
+/* Usb  Disconnect  function  */
+static void usb_disconnect ( struct usb_interface  *interface ) 
+{ 
+
+	/*   -- CLEAN UPS ON DISCONNECT  -- */  
+
+	struct my_usb_storage  *dev ; 
+	dev =  usb_get_intfdata ( interface);
+	if( dev) 
+	{
+		dev->cbw_tag = 0 ; 	
+		/* Calling usb_clear_buffer_and_urb function */ 
+	 	int  usb_clear_return =	usb_clear_buffer_and_urb( dev) ;
+		if( usb_clear_return) 
+		{ 
+			pr_err("Allocation cleanup error\n") ; 
+			return ; 
+		} 
+
+		/* Clearing bulk endpoints */ 
+		usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr));		 	 
+		usb_clear_halt(dev->udev, usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr));	
+
+	} 
+
+       	usb_set_intfdata(interface , NULL) ; 
+	usb_put_dev(dev->udev) ; 
+	kfree(dev); 
+	pr_info(" -- USB DISCONNECTED -- \n"); 
+	return ; 
+}
+
+
+
+
+
+/* USB URB and buffer allocation function */ 
+int usb_alloc_buffer_and_urb( struct my_usb_storage *dev) 
+{ 
+
+ 	pr_info(" Allocating buffer....\n"); 
+
+		
 	/* For Inquriry scsi command */
 	dev->cbw_buffer = kmalloc(CBW_LEN , GFP_KERNEL) ; 
 	if( dev->cbw_buffer ==NULL) 
@@ -322,543 +729,253 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
  	 }
 
 
+
+	pr_info("Allocation successful [ ok ] \n") ; 
 	
+	return 0 ;	
 
 
 
-	/* Setting up   bulk_in_endpointaddr and bulk_out_endpointaddr */ 
-	for(int i = 0 ; i < iface_desc->desc.bNumEndpoints ; i++ ) 
-	{ 
-		struct usb_endpoint_descriptor  *epd = &iface_desc->endpoint[i].desc; 
-		
-		if(usb_endpoint_is_bulk_in(epd)) 
-		{ 
-			dev->bulk_in_endpointaddr =  epd->bEndpointAddress ; 
-		} 
-
-		if(usb_endpoint_is_bulk_out(epd))
-		{ 
-			dev->bulk_out_endpointaddr = epd->bEndpointAddress; 
-		} 
-	} 
-
-
-	if(!dev->bulk_in_endpointaddr && !dev->bulk_out_endpointaddr) 
-	{ 
-		dev_err(&interface->dev , " Bad endpoint address  \n") ; 
-		return  -ENODEV ; 
-	
-	} 
-
-
-	pr_info(" bulk_in_endpointaddr :0x%02x\n", dev->bulk_in_endpointaddr) ; 
-
-	pr_info(" bulk_out_endpointaddr :0x%02x\n", dev->bulk_out_endpointaddr) ; 
-
-
-	/* Creating workqueue */ 
-	INIT_WORK(&dev->my_work, init_usb_protocols) ;
-
-
-
-	/* Scheduling  CBW   in  workqyeue */ 
-	schedule_work(&dev->my_work); 
-
-	 
-	pr_info(" -- DEVICE  READY --\n"); 
-
-	return 0 ; 
+/* Cleanups */ 
 
 
 r_cbw: 
 
-	 if(!dev->cbw_urb || !dev->cbw_buffer) 
-	 { 
+	 if(dev->cbw_urb || dev->cbw_buffer) 
+	 {
+		if(dev->cbw_urb) 
+		{
 
-		usb_kill_urb(dev->cbw_urb); 
-	 	usb_free_urb(dev->cbw_urb);
-		kfree(dev->cbw_buffer) ;
-	 	dev->cbw_urb = NULL ;
-	 	dev->cbw_buffer = NULL;
+			usb_kill_urb(dev->cbw_urb); 
+		 	usb_free_urb(dev->cbw_urb);
+	 		dev->cbw_urb = NULL ;
+		} 
+		if( dev->cbw_buffer) 
+		{ 
+
+			kfree(dev->cbw_buffer) ;
+	 		dev->cbw_buffer = NULL; 
+		} 
+
 	        return -EINVAL ; 	
 	 } 
 
 r_csw: 
 
-	 if(!dev->csw_urb || !dev->csw_buffer) 
+	 if(dev->csw_urb || dev->csw_buffer) 
 	 { 
 
-		usb_kill_urb(dev->csw_urb); 
-	 	usb_free_urb(dev->csw_urb);
-		kfree(dev->csw_buffer) ;
-	 	dev->csw_urb = NULL ;
-	 	dev->csw_buffer = NULL;
+		 if( dev->csw_urb) 
+		 {
+
+			usb_kill_urb(dev->csw_urb); 
+	 		usb_free_urb(dev->csw_urb);
+	 		dev->csw_urb = NULL ;
+		 }
+		if(dev->csw_buffer) 
+		{
+			kfree(dev->csw_buffer) ; 
+	 		dev->csw_buffer = NULL;
+
+		}
 	        return -EINVAL ; 	
 	 } 
 
 r_inquiry: 
 
 
-	 if(!dev->inquiry_urb || !dev->inquiry_buffer) 
+	 if(dev->inquiry_urb || dev->inquiry_buffer) 
 	 { 
+		 if( dev->inquiry_urb) 
+		 {
 
-		usb_kill_urb(dev->inquiry_urb); 
-	 	usb_free_urb(dev->inquiry_urb);
-		kfree(dev->inquiry_buffer) ;
-	 	dev->inquiry_urb = NULL ;
-	 	dev->inquiry_buffer = NULL;
-	        return -EINVAL ; 	
+			usb_kill_urb(dev->inquiry_urb); 
+	 		usb_free_urb(dev->inquiry_urb);
+	 		dev->csw_urb = NULL ;
+		 }
+		if(dev->csw_buffer) 
+		{
+			kfree(dev->csw_buffer) ; 
+	 		dev->csw_buffer = NULL;
+
+		}
+	
+		 return -EINVAL ; 	
 	 } 
 
 
 r_read : 
 
-	 if(!dev->read_urb || !dev->read_buf) 
+	 if(dev->read_urb || dev->read_buf) 
 	 { 
+		 if( dev->read_urb) 
+		 {
 
-		usb_kill_urb(dev->read_urb); 
-	 	usb_free_urb(dev->read_urb);
-		kfree(dev->read_buf) ;
-	 	dev->read_urb = NULL ;
-	 	dev->read_buf = NULL;
+			usb_kill_urb(dev->read_urb); 
+	 		usb_free_urb(dev->read_urb);
+	 		dev->read_urb = NULL ;
+		 }
+		if(dev->read_buf) 
+		{
+			kfree(dev->read_buf) ; 
+	 		dev->read_buf = NULL;
+
+		}
 	        return -EINVAL ; 	
 	 } 
 
 r_write: 
 
 	
-	 if(!dev->write_urb || !dev->write_buffer) 
+	 if(dev->write_urb || dev->write_buffer) 
 	 { 
+		 if( dev->write_urb) 
+		 {
 
-		usb_kill_urb(dev->write_urb); 
-	 	usb_free_urb(dev->write_urb);
-		kfree(dev->write_buffer) ;
-	 	dev->write_urb = NULL ;
-	 	dev->write_buffer = NULL;
+			usb_kill_urb(dev->write_urb); 
+	 		usb_free_urb(dev->write_urb);
+	 		dev->write_urb = NULL ;
+		 }
+		if(dev->write_buffer) 
+		{
+			kfree(dev->write_buffer) ; 
+	 		dev->write_buffer = NULL;
+		} 
+		
 	        return -EINVAL ; 	
 	 } 
 
 
-	return 0 ;  
-
-		
-}
-
-
- 
-
-/* Init_usb_protocol */ 
-void init_usb_protocols( struct work_struct *work) 
-{  
-
-	pr_info(" -USB_WORKQUEUE_FUNCTION-\n"); 
-
-
-
-	struct my_usb_storage *dev ; 
-
-	dev = container_of(work, struct my_usb_storage , my_work) ; 
+	return  -EINVAL;
+} 
 
 
 
 
-	SCSI_INQUIRY(dev->my_cbw , 36 ) ; 
-	
-	memcpy(dev->cbw_buffer ,&dev->my_cbw, CBW_LEN) ; 	
+/* USB URB and buffer cleanup function */  
+int usb_clear_buffer_and_urb( struct my_usb_storage *dev) 
+{
 
-       // SCSI_TEST_UNIT_READY(dev->my_cbw); 
-
- 
-
-	usb_fill_bulk_urb(dev->cbw_urb, dev->udev , usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr), dev->cbw_buffer , CBW_LEN , cbw_callback , dev ) ; 
-
-
-	 int ret = usb_submit_urb(dev->cbw_urb , GFP_KERNEL); 
- 
-	 if(ret) 
-	 { 
-		 pr_info("  Cbw submission error :[%d] \n", ret) ; 
-	  
-		 goto r_urb ; 
-	 } 
-
-
-	 pr_info("Cbw  send successfully [ OK ] \n"); 
-
-
-	return ;
-
-/* Cleanups */
-r_urb :
-	if(dev->cbw_urb) 
-	{ 
-
-	 pr_info("cbw_urb_err : cleaning.... \n");
-
-	 usb_kill_urb(dev->cbw_urb); 
-	 usb_free_urb(dev->cbw_urb); 
-	 kfree(dev->cbw_buffer) ;
-	 dev->cbw_buffer = NULL; 
-	 dev->cbw_urb =NULL; 
-	 return  ; 
-
-	}else{ 
-	       pr_info(" No_cbw_urb_error \n"); 
-	 	return ; 
-
-	} 
-
-}
-
-
-
-
-/* Usb  Disconnect */
-static void usb_disconnect ( struct usb_interface  *interface ) 
-{ 
-
-	/*   -- CLEAN UPS ON DISCONNECT  -- */  
-
-	struct my_usb_storage  *dev ; 
-	dev =  usb_get_intfdata ( interface);
+	// Clearing  allocated  buffers and urbs // 
+	pr_info("Clearing allocations....\n") ;
 
 	if (dev) 
-	{ 
-		if(dev->cbw_urb) 
-	
-		{	
-		usb_kill_urb(dev->cbw_urb) ; 
-		usb_free_urb(dev->cbw_urb) ; 
-		kfree(dev->cbw_buffer) ; 
-	        dev->cbw_urb = NULL ; 
-		dev->cbw_buffer = NULL ;
-		} 
-	
-		if(dev->write_urb) 
-		{ 
-		usb_kill_urb(dev->write_urb); 
-		usb_free_urb(dev->write_urb); 
-		kfree(dev->write_buffer);
-	        dev->write_urb = NULL ; 
-		dev->write_buffer= NULL ; 
-		} 
-	
-
-		if(dev->csw_urb)
-		{
-		usb_kill_urb(dev->csw_urb); 
-		usb_free_urb(dev->csw_urb); 
-		kfree(dev->csw_buffer); 
-	        dev->csw_urb = NULL ; 
-		dev->csw_buffer = NULL ; 
-		} 
-
-	
-		if(dev->read_buf) 
-		{ 
-		usb_kill_urb(dev->read_urb); 
-		usb_free_urb(dev->read_urb); 
-		kfree(dev->read_buf); 
-	        dev->read_urb = NULL ; 
-		dev->read_buf = NULL ; 
-		} 
- 
-
-		if( dev->inquiry_urb) 
-		{ 
-		usb_kill_urb(dev->inquiry_urb); 
-		usb_free_urb(dev->inquiry_urb); 
-		kfree(dev->inquiry_buffer) ;
-		dev->inquiry_urb = NULL ; 
-		dev->inquiry_buffer = NULL ; 
-		} 
-	} 
-
-	dev->cbw_tag = 0 ; 	
-
-	usb_set_intfdata(interface, NULL) ; 
-
-	usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr));		 	 
-	usb_clear_halt(dev->udev, usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr));	
-
-
-
-       	usb_set_intfdata(interface , NULL) ; 
-	usb_put_dev(dev->udev) ; 
-	kfree(dev); 
-	pr_info(" -- USB DISCONNECTED -- \n"); 
-	return ; 
-}
-
-
-
-
-
-/* Cbw_callback function */ 
-static   void cbw_callback ( struct urb *urb )
-{ 
-	pr_info("-- Cbw_callback function -- \n");
-
-	struct my_usb_storage *dev  =  urb->context ;
-        	       
-	pr_info(" bulak_in_endpointaddr :0x%02x\n", dev->bulk_in_endpointaddr) ; 
-
-	if(urb->status)
 	{
+		 /* Clearing cbw_urb and cbw_buffer */ 
+		 if(dev->cbw_urb || dev->cbw_buffer) 
+		 {
+			if(dev->cbw_urb) 
+			{
 
-		if( urb->status == EPIPE ) 
-		{ 
-
-			pr_info(" ENDPOINT STALLED \n"); 
-
-	
-			return ; 
-		} 
-
-		pr_err("  CBW URB  FAILED WIH STATUS  : %d\n  && (%s) \n", urb->status , 
-		urb->status == -ESHUTDOWN ? "Device removed/shutdown" : 
-		urb->status == -ENOENT ? " Urb  killed befroe submissio " : "Unkown err" ); 
-		return ; 
-	}  
-	
-
- 	 struct command_block_wrapper *cbw  =  (struct  command_block_wrapper *)  urb->transfer_buffer; 
-
-
-	if(cbw->dCBWSignature !=cpu_to_le32(0x43425355)) 
-	{ 
-		pr_err(" Invalid   cbw signature \n"); 
-		return ; 
-	}
-
-
-	dev->cbw_tag = cbw->dCBWTag; 
-	
-
-	switch(cbw->CBWCB[0]) 
-	{
-	       // SCSI  WRITE COMMAND // 	
-		case 0x2A : 
-			pr_info(" SCSI WRITE COMMAD BEDU  COMMAND REVIEVED \n") ; 
-
-
-			usb_fill_bulk_urb(dev->write_urb ,dev->udev, usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr), dev->write_buffer ,  15  ,  data_callback, dev) ; 
-
-			int ret = usb_submit_urb(dev->write_urb , GFP_KERNEL) ; 
-			if(ret) 
-
+				usb_kill_urb(dev->cbw_urb); 
+		 		usb_free_urb(dev->cbw_urb);
+	 			dev->cbw_urb = NULL ;
+			} 
+			if( dev->cbw_buffer) 
 			{ 
-				pr_info("  SCSI_WRITE_URB_SUB_ERR\n");   
-				usb_kill_urb(dev->write_urb); 
-				usb_free_urb(dev->write_urb);
-				kfree(dev->write_buffer); 
-				dev->write_buffer =NULL; 
-				dev->write_urb = NULL; 
-				return ; 
 
+				kfree(dev->cbw_buffer) ;
+	 			dev->cbw_buffer = NULL; 
 			} 
 
+	 	} 
 
-			
-			pr_info(" WRITE_URB_SUB_SUCCESS \n");
-			
-		       	break ; 
+		 /* Clearing csw_urb and csw_buffer */ 
+		 if(dev->csw_urb || dev->csw_buffer) 
+		 { 
 
+			 if( dev->csw_urb) 
+		 	{
 
-		/* READ SCSIC COMMAND */ 
-		case 0x28 :  
+				usb_kill_urb(dev->csw_urb); 
+	 			usb_free_urb(dev->csw_urb);
+	 			dev->csw_urb = NULL ;
+			 }
+			if(dev->csw_buffer) 
+			{
+				kfree(dev->csw_buffer) ; 
+	 			dev->csw_buffer = NULL;
 
-			pr_info("SCSI  READ (10) \n") ;
+			}
+	 	} 
 
+		 /* Clearing  inquiry_urb and inquiry_buffer */ 
+		 if(dev->inquiry_urb || dev->inquiry_buffer) 
+		 { 
+			 if( dev->inquiry_urb) 
+			 {
 
-			usb_fill_bulk_urb(dev->read_urb ,dev->udev, usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr), dev->read_buf ,  512   ,  data_callback,dev) ; 
-
-			int result  = usb_submit_urb(dev->read_urb , GFP_KERNEL) ; 
-			if(result) 
-
-			{ 
-
-				pr_info(" READ_URB_SUB_ERR\n"); 
-				goto r_urb ; 
-			} 
-
-
-			pr_info(" SEC URB SUMBIT SUCCESS \n"); 
-
-			break ; 
-
-
-		// SCSI  TEST UNIT COMMAND // 
-		case 0x1A : 
-			pr_info(" SCSI MODE SENSE COMMAND RECIEVED \n"); 
-			break ;
-
-
-		// SCSI  INQUIRY COMMAND // 	
-		case 0x12  : 
-			
-			pr_info(" SCSI-INQUIRY_CMD REQ\n");  
-
-
-	usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr));		 	 
-	usb_clear_halt(dev->udev, usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr));	
-
-
-		
-			usb_fill_bulk_urb(dev->inquiry_urb , dev->udev , usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr), dev->inquiry_buffer , 36 , data_callback,dev) ; 
-
-			int urb_inquiry_result = usb_submit_urb(dev->inquiry_urb , GFP_KERNEL) ; 
-			if( urb_inquiry_result) 
-			{ 
-				pr_info(" INQUIRY_URB_SUBMIT_ERR\n"); 
 				usb_kill_urb(dev->inquiry_urb); 
-				usb_free_urb(dev->inquiry_urb); 
-				kfree(dev->inquiry_buffer) ;
-				dev->inquiry_buffer = NULL ;
-			        dev->inquiry_urb = NULL; 
+	 			usb_free_urb(dev->inquiry_urb);
+	 			dev->csw_urb = NULL ;
+			 }
+			if(dev->csw_buffer) 
+			{
+				kfree(dev->csw_buffer) ; 
+		 		dev->csw_buffer = NULL;
+			}
+		 } 
 
-				return ; 
+		 /* Clearing read_urb and read_buffer */ 
+		 if(dev->read_urb || dev->read_buf) 
+		 { 
+			 if( dev->read_urb) 
+			 {
+
+				usb_kill_urb(dev->read_urb); 
+	 			usb_free_urb(dev->read_urb);
+	 			dev->read_urb = NULL ;
+			 }
+			if(dev->read_buf) 
+				{
+				kfree(dev->read_buf) ; 
+	 			dev->read_buf = NULL;
+
+			}
+		 } 
+
+		 /* Clearing write_urb and write_buffer */ 
+		 if(dev->write_urb || dev->write_buffer) 
+		 { 
+			 if( dev->write_urb) 
+			 {
+
+				usb_kill_urb(dev->write_urb); 
+		 		usb_free_urb(dev->write_urb);
+		 		dev->write_urb = NULL ;
+			 }
+			if(dev->write_buffer) 
+			{
+				kfree(dev->write_buffer) ; 
+	 			dev->write_buffer = NULL;
 			} 
+		 } 
 
-			
-			pr_info(" INQUIRY_URB_SUBMISSION_SUCCESS\n"); 
-			break ; 
+	 pr_info("Allocation cleared [ ok ] \n");
+	 return 0 ;
 
-
-		default :
-			pr_warn(" SCSI UNKNOWN COMMAND :0x%02x\n", cbw->CBWCB[0]); 
-			break ; 
 	}
-
-	return ; 
-
-
-
-r_urb : 
-usb_kill_urb(dev->read_urb); 
-usb_free_urb(dev->read_urb); 
-kfree(dev->read_buf);
-dev->read_urb=NULL; 
-dev->read_buf = NULL ; 
-return ; 
-
-	
+		 return -EINVAL ;
 } 
- 
-
-
-/* data call_back function */ 
-static   void data_callback  ( struct urb *urb )
-{ 
-	
-	pr_info("  -DATA CALLBACK FN -\n");
-	struct my_usb_storage *dev = urb->context ;  
-
-       unsigned char *buffer = urb->transfer_buffer; 
-
-	uint32_t  max_lba  = be32_to_cpu(*(uint32_t *) &buffer[0]); 
-
-	uint32_t  block_size  = be32_to_cpu(*(uint32_t *) &buffer[4]);
-
-
-	pr_info(" max_lba :%u\n", max_lba); 
-	pr_info(" BLOCK sizev: %u bytes \n", block_size); 
-
-
-	
-	usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr)); 
-       	usb_clear_halt(dev->udev, usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr)); 
-
-	memcpy(dev->csw_buffer , &dev->my_csw, CSW_LEN) ; 
-
-	usb_fill_bulk_urb(dev->csw_urb,dev->udev,usb_rcvbulkpipe(dev->udev  , dev->bulk_in_endpointaddr), dev->csw_buffer, CSW_LEN , csw_callback, dev) ; 
-	int ret = usb_submit_urb(dev->csw_urb, GFP_KERNEL); 
-
-	if( ret) 
-	{ 
-		pr_info(" SUBMISSION ERR : 3 \n"); 
-		usb_kill_urb(dev->csw_urb); 
-		usb_free_urb(dev->csw_urb); 
-		kfree(dev->csw_buffer);
-	       	dev->csw_buffer = NULL ; 
-		dev->csw_urb = NULL ; 	
-		return  ; 
-	} 
 
 
 
-
-	pr_info(" - CSW RECIEVED -  \n"); 
-
-
-	return ; 
-
-
-
-
-}
-
-
-
-/* csw_callback function */ 
-static   void csw_callback( struct urb *urb ) 
-{ 
-
-	struct my_usb_storage *dev = urb->context ;  
-
-
- 
-
-	pr_info(" csw callback function \n");
-	pr_info("  CSW CALLBACK STATUS : %d\n",urb->status); 
-
-
-	if(urb->status)
-	{	
-		urb->status == -ENOENT  ? usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr)) , usb_clear_halt(dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr)) : 
-	
-			
-		pr_err("  CBW URB  FAILED WIH STATUS  : %d\n  && (%s) \n", urb->status , 
-		urb->status == -ESHUTDOWN ? "Device removed/shutdown" : 
-		urb->status == -EPIPE ?  "Endpoint stalled" : " HEHE " ) ;  
-	//	urb->status == -ENOENT ? " Urb  killed befroe submissio " : "Unkown err" ); 
-		return ; 
-	} 
-	struct command_status_wrapper *csw =  (struct  command_status_wrapper *)  urb->transfer_buffer; 
-
-	if( csw->dCSWSignature !=cpu_to_le32(0x43425455)) 
-	{ 
-		pr_err(" Imvalid CBW signature \n"); 
-		return ;
-	} 
-	if(csw->dCSWTag != dev->cbw_tag) 
-	{ 
-		pr_info(" TAG NOT MATCHED \n"); 
-		return  ;
-	} 
-
-
-	pr_info("something went good \n"); 
-
-	
-	return ; 
-} 
 
 /************************************************   MODULE FUNCTIONS ***************************************/ 
 
 static int __init urb_init(void) 
 { 
-       int ret =  usb_register_driver(&exmp_usb_driver,  THIS_MODULE , "URB_driver") ;
-      if( ret) 
-      { 
+     int ret =  usb_register_driver(&exmp_usb_driver,  THIS_MODULE , "URB_driver") ;
+     if( ret) 
+     { 
 	     pr_info("-USB REGISTER FAILED\n"); 
 	     return 0 ; 
-      } 
+     } 
 
 
-	pr_info(" -USB  REGISTERED-  \n");
+     pr_info(" -USB  REGISTERED-  \n");
 
-	return 0 ; 
+     return 0 ; 
 } 
 
 
