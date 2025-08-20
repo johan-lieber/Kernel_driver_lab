@@ -268,9 +268,9 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	} 
 
 
-	pr_info(" bulk_in_endpointaddr :0x%02x\n", dev->bulk_in_endpointaddr) ; 
+	pr_info("bulk_in_endpointaddr :[0x%02x]\n", dev->bulk_in_endpointaddr) ; 
 
-	pr_info(" bulk_out_endpointaddr :0x%02x\n", dev->bulk_out_endpointaddr) ; 
+	pr_info("bulk_out_endpointaddr :[0x%02x]\n", dev->bulk_out_endpointaddr) ; 
 
 
 	/* Creating workqueue */ 
@@ -295,7 +295,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 void init_usb_protocols( struct work_struct *work) 
 {  
 
-	pr_info(" -USB_WORKQUEUE_FUNCTION-\n"); 
+	pr_info("Initializing protocols...\n"); 
 
 
 
@@ -321,13 +321,13 @@ void init_usb_protocols( struct work_struct *work)
  
 	 if(ret) 
 	 { 
-		 pr_info("  Cbw submission error :[%d] \n", ret) ; 
+		 pr_info("Cbw submission error:[%d] \n", ret) ; 
 	  
 		 goto r_urb ; 
 	 } 
 
 
-	 pr_info("Cbw  send successfully [ OK ] \n"); 
+	 pr_info("Cbw send successfully [ OK ]\n"); 
 
 
 	return ;
@@ -363,7 +363,7 @@ static   void cbw_callback ( struct urb *urb )
 
 	struct my_usb_storage *dev  =  urb->context ;
         	       
-	pr_info(" bulak_in_endpointaddr :0x%02x\n", dev->bulk_in_endpointaddr) ; 
+	pr_info(" bulk_in_endpointaddr :[0x%02x]\n", dev->bulk_in_endpointaddr) ; 
 
 	if(urb->status)
 	{
@@ -459,15 +459,12 @@ static   void cbw_callback ( struct urb *urb )
 		// SCSI  INQUIRY COMMAND // 	
 		case 0x12  : 
 			
-			pr_info(" SCSI-INQUIRY_CMD REQ\n");  
-	
-		
-			usb_fill_bulk_urb(dev->inquiry_urb , dev->udev , usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr), dev->inquiry_buffer , 36 , data_callback,dev) ; 
+usb_fill_bulk_urb(dev->inquiry_urb , dev->udev , usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr), dev->inquiry_buffer , 36 , data_callback,dev) ; 
 
 			int urb_inquiry_result = usb_submit_urb(dev->inquiry_urb , GFP_KERNEL) ; 
 			if( urb_inquiry_result) 
 			{ 
-				pr_info(" INQUIRY_URB_SUBMIT_ERR\n"); 
+				pr_info("Inquiry_urb_alloc error\n"); 
 				usb_kill_urb(dev->inquiry_urb); 
 				usb_free_urb(dev->inquiry_urb); 
 				kfree(dev->inquiry_buffer) ;
@@ -478,7 +475,7 @@ static   void cbw_callback ( struct urb *urb )
 			} 
 
 			
-			pr_info(" INQUIRY_URB_SUBMISSION_SUCCESS\n"); 
+			pr_info("Inquiry response recieved [ ok ]\n"); 
 			break ; 
 
 
@@ -527,7 +524,7 @@ static   void data_callback  ( struct urb *urb )
 
 	if( ret) 
 	{ 
-		pr_info(" SUBMISSION ERR : 3 \n"); 
+		pr_info("Csw_urb_alloc error\n"); 
 		usb_kill_urb(dev->csw_urb); 
 		usb_free_urb(dev->csw_urb); 
 		kfree(dev->csw_buffer);
@@ -539,7 +536,7 @@ static   void data_callback  ( struct urb *urb )
 
 
 
-	pr_info(" - CSW RECIEVED -  \n"); 
+	pr_info("Csw response recieved  [ ok ]\n"); 
 
 
 	return ; 
@@ -584,7 +581,7 @@ static   void csw_callback( struct urb *urb )
 	} 
 	if(le32_to_cpu(csw->dCSWTag)  != dev->cbw_tag) 
 	{ 
-		pr_info(" TAG NOT MATCHED \n"); 
+		pr_info("Invalid  tags  \n"); 
 		return  ;
 	} 
 
@@ -794,10 +791,10 @@ r_inquiry:
 	 		usb_free_urb(dev->inquiry_urb);
 	 		dev->csw_urb = NULL ;
 		 }
-		if(dev->csw_buffer) 
+		if(dev->inquiry_buffer) 
 		{
-			kfree(dev->csw_buffer) ; 
-	 		dev->csw_buffer = NULL;
+			kfree(dev->inquiry_buffer) ; 
+	 		dev->inquiry_buffer = NULL;
 
 		}
 	
