@@ -51,7 +51,7 @@
 	(cbw).dCBWSignature = cpu_to_le32(CBW_SIG) ;\
 	(cbw).dCBWTag = cpu_to_le32(0x12345678) ; \
 	(cbw).dCBWDataTransferLength = cpu_to_le32(alloc_len); \
-	(cbw).bmCBWFlags = 0x80; \
+	(cbw).bmCBWFlags = 0x00; \
 	(cbw).bCBWLUN = 0 ;\
 	(cbw).bCBWCBLength = 6 ; \
         (cbw).CBWCB[0] = 0x12 ; \
@@ -323,7 +323,7 @@ void init_usb_protocols( struct work_struct *work)
 
 
 	
-	print_hex_dump_bytes("cbw ;", DUMP_PREFIX_OFFSET ,&dev->my_cbw , CBW_LEN);
+	print_hex_dump_bytes("cbw ;", DUMP_PREFIX_OFFSET ,&dev->my_cbw , sizeof(dev->my_cbw));
 
 	memcpy(dev->cbw_buffer ,&dev->my_cbw, CBW_LEN) ; 	
 
@@ -387,7 +387,7 @@ static   void cbw_callback ( struct urb *urb )
 	if(urb->status)
 	{
 
-		if( urb->status == EPIPE ) 
+		if( urb->status == -EPIPE ) 
 		{ 
 
 			pr_info(" ENDPOINT STALLED \n"); 
