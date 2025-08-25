@@ -307,6 +307,18 @@ void init_usb_protocols( struct work_struct *work)
 
 	
 
+	if(!dev) 
+	{ 
+		pr_info(" no dev "); 
+	} 
+	if( !dev->udev) 
+	{ 
+		pr_info(" no udev too"); 
+	} 
+
+
+	memset(dev->cbw_buffer , 0 , CBW_LEN); 
+
 	SCSI_INQUIRY(dev->my_cbw , 36 ) ; 
 
 
