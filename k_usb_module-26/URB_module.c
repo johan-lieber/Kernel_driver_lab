@@ -1,3 +1,4 @@
+#include <linux/printk.h>
 #include <linux/kernel.h>
 #include <linux/usb.h> 
 #include <linux/module.h> 
@@ -304,15 +305,21 @@ void init_usb_protocols( struct work_struct *work)
 	dev = container_of(work, struct my_usb_storage , my_work) ; 
 
 
-
+	
 
 	SCSI_INQUIRY(dev->my_cbw , 36 ) ; 
+
+
 	
+	print_hex_dump_bytes("cbw ;", DUMP_PREFIX_OFFSET ,&dev->my_cbw , CBW_LEN);
+
 	memcpy(dev->cbw_buffer ,&dev->my_cbw, CBW_LEN) ; 	
 
        // SCSI_TEST_UNIT_READY(dev->my_cbw); 
 
  
+	pr_info(" sending this CBW\n"); 
+	print_hex_dump_bytes("cbw ;", DUMP_PREFIX_OFFSET ,dev->cbw_buffer , CBW_LEN);	
 
 	usb_fill_bulk_urb(dev->cbw_urb, dev->udev , usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr), dev->cbw_buffer , CBW_LEN , cbw_callback , dev ) ; 
 
@@ -461,7 +468,7 @@ static   void cbw_callback ( struct urb *urb )
 			
 usb_fill_bulk_urb(dev->inquiry_urb , dev->udev , usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr), dev->inquiry_buffer , 36 , data_callback,dev) ; 
 
-			int urb_inquiry_result = usb_submit_urb(dev->inquiry_urb , GFP_KERNEL) ; 
+			int urb_inquiry_result = usb_submit_urb(dev->inquiry_urb , GFP_ATOMIC) ; 
 			if( urb_inquiry_result) 
 			{ 
 				pr_info("Inquiry_urb_alloc error\n"); 
@@ -475,7 +482,8 @@ usb_fill_bulk_urb(dev->inquiry_urb , dev->udev , usb_rcvbulkpipe(dev->udev, dev-
 			} 
 
 			
-			pr_info("Inquiry response recieved [ ok ]\n"); 
+			pr_info("Inquiry response recieved [ ok ]\n");
+
 			break ; 
 
 
@@ -504,32 +512,35 @@ return ;
 /* data call_back function */ 
 static   void data_callback  ( struct urb *urb )
 { 
+
+ 	if(urb->status == -EPIPE) 
+  	{ 
+		pr_info("endpoint stalled \n"); 
+		return ; 
+	 } 	
 	
 	pr_info("  -DATA CALLBACK FN -\n");
 	struct my_usb_storage *dev = urb->context ;  
 
-       unsigned char *buffer = urb->transfer_buffer; 
+      // unsigned char *buffer = urb->transfer_buffer; 
+//
+//	uint32_t  max_lba  = be32_to_cpu(*(uint32_t *) &buffer[0]); 
+//
+//	uint32_t  block_size  = be32_to_cpu(*(uint32_t *) &buffer[4]);
+//
+//
+//	pr_info(" max_lba :%u\n", max_lba); 
+//	pr_info(" BLOCK sizev: %u bytes \n", block_size); 
+//
+	
+usb_fill_bulk_urb(dev->csw_urb,dev->udev,usb_rcvbulkpipe(dev->udev  , dev->bulk_in_endpointaddr), dev->csw_buffer, CSW_LEN , csw_callback, dev) ; 
+	 
 
-	uint32_t  max_lba  = be32_to_cpu(*(uint32_t *) &buffer[0]); 
-
-	uint32_t  block_size  = be32_to_cpu(*(uint32_t *) &buffer[4]);
-
-
-	pr_info(" max_lba :%u\n", max_lba); 
-	pr_info(" BLOCK sizev: %u bytes \n", block_size); 
-
-
-	usb_fill_bulk_urb(dev->csw_urb,dev->udev,usb_rcvbulkpipe(dev->udev  , dev->bulk_in_endpointaddr), dev->csw_buffer, CSW_LEN , csw_callback, dev) ; 
-	int ret = usb_submit_urb(dev->csw_urb, GFP_KERNEL); 
+	int ret = usb_submit_urb(dev->csw_urb, GFP_ATOMIC); 
 
 	if( ret) 
 	{ 
 		pr_info("Csw_urb_alloc error\n"); 
-		usb_kill_urb(dev->csw_urb); 
-		usb_free_urb(dev->csw_urb); 
-		kfree(dev->csw_buffer);
-	       	dev->csw_buffer = NULL ; 
-		dev->csw_urb = NULL ; 	
 		return  ; 
 	} 
 
@@ -664,7 +675,7 @@ int usb_alloc_buffer_and_urb( struct my_usb_storage *dev)
 
  	dev->csw_urb = usb_alloc_urb(0, GFP_KERNEL) ; 
  
- 	if(!dev->csw_urb ) 
+ 	if(dev->csw_urb==NULL ) 
 	 {
 		 pr_info(" MY_URB ALLOC_ERRR\n");
 		 goto r_csw ; 
