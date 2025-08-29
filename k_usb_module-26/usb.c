@@ -46,7 +46,7 @@ struct my_usb_storage {
 	struct work_struct my_work ;
         struct command_block_wrapper cbw ;	
 	struct command_status_wrapper csw ;
-	unsigned int bufferLength ; 
+	unsigned int bufferlength ; 
 	unsigned  int direction ; 
 	struct scsi_cmnd *active_scmd ; 	
 	/* endpoints */ 
@@ -79,6 +79,8 @@ int  deallocate_usb_resource( struct my_usb_storage *dev);
 int allocate_usb_resource( struct my_usb_storage *dev) ;
 static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd );
 static void  cbw_callback( struct urb *urb ); 
+static void csw_callback ( struct urb *urb ); 
+static void data_callback ( struct urb *urb); 
 
 /* scsi host template */ 
 static struct scsi_host_template  my_sht ={
@@ -269,7 +271,7 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 		/* Submiting  csw   urb */ 
 
 		usb_fill_bulk_urb(dev->csw_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , dev->csw_buffer ,  CSW_LEN , csw_callback, dev ) ;   
-		int csw_rtv = usb_submit_urb(dev->csw_urb. GFP_ATOMIC);
+		int csw_rtv = usb_submit_urb(dev->csw_urb, GFP_ATOMIC);
 		if(csw_rtv) 
 		{ 
 			pr_info("csw_urb : usb_submit_urb() error\n"); 
@@ -290,19 +292,19 @@ static void data_callback(  struct urb *urb )
 	{ 
 		pr_err(" data_urb  error \n"); 
 	}
-
-	struct command_block_wrapper  *csw = (struct command_block_wrapper *) urb->transfer_buffer; 
-
-	if(  le32_to_cpu(csw->dCSWSignature)!= CBW_SIG)
-	{ 
-		pr_err(" Invalid CSW signature  \n"); 
-		return ; 
-	} 
- 
+// 
+// 	struct command__wrapper  *csw = (struct command_block_wrapper *) urb->transfer_buffer; 
+// 
+// 	if(  le32_to_cpu(csw->dCSWSignature)!= CBW_SIG)
+// 	{ 
+// 		pr_err(" Invalid CSW signature  \n"); 
+// 		return ; 
+// 	} 
+//  
 
        	/* Submiting  csw   urb */ 
 	usb_fill_bulk_urb(dev->csw_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , dev->csw_buffer ,  CSW_LEN , csw_callback, dev ) ;   
-	int csw_rtv = usb_submit_urb(dev->csw_urb. GFP_ATOMIC);
+	int csw_rtv = usb_submit_urb(dev->csw_urb, GFP_ATOMIC);
 	if(csw_rtv) 
 	{
 
@@ -327,7 +329,7 @@ static void csw_callback(  struct urb *urb )
 		pr_err(" data_urb  error \n"); 
 	}
 
-	struct command_status_wrapper  *csw = (struct command_block_wrapper *) urb->transfer_buffer; 
+	struct command_status_wrapper  *csw = (struct command_status_wrapper *) urb->transfer_buffer; 
 
 	if(  le32_to_cpu(csw->dCSWSignature)!= CBW_SIG)
 	{ 
@@ -336,7 +338,7 @@ static void csw_callback(  struct urb *urb )
 	} 
 
 
-	scmd_done(scmd); 
+	scsi_done(scmd); 
 	dev->active_scmd = NULL; 
 
         	
