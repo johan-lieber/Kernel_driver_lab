@@ -216,6 +216,7 @@ static int usb_probe ( struct  usb_interface *interface ,  const struct usb_devi
 	dev->intf = interface; 
 	usb_set_intfdata(interface, dev); 
 
+	dev = dev ; 
 	
 	struct usb_host_interface *iface_desc ; 
 	iface_desc = interface->cur_altsetting ;
@@ -304,27 +305,33 @@ void init_usb_protocols( struct work_struct *work)
 	dev = container_of(work, struct my_usb_storage , my_work) ; 
 
 
+	
 
-	memset(dev->cbw_buffer , 0 , CBW_LEN);
-
-	memset(&dev->my_cbw ,0 , sizeof(CBW_LEN)); 
-
-	dev->my_cbw.dCBWSignature = cpu_to_le32(CBW_SIG) ;
-	dev->my_cbw.dCBWTag = cpu_to_le32(0x12345678) ; 
-	dev->my_cbw.dCBWDataTransferLength = cpu_to_le32(36);
-	dev->my_cbw.bmCBWFlags = 0x80; 
-	dev->my_cbw.bCBWLUN = 0 ;
-	dev->my_cbw.bCBWCBLength = 6 ; 
-        dev->my_cbw.CBWCB[0] = 0x12 ; 
-        dev->my_cbw.CBWCB[1] = 0x00 ; 
-        dev->my_cbw.CBWCB[2] = 0x00 ; 
-        dev->my_cbw.CBWCB[3] = 0x00 ; 
-        dev->my_cbw.CBWCB[4] = 36 ;
-        dev->my_cbw.CBWCB[5] = 0x00 ;
-/*	SCSI_INQUIRY(dev->my_cbw , 36 ) ; */
+	if(!dev) 
+	{ 
+		pr_info(" no dev "); 
+	} 
+	if( !dev->udev) 
+	{ 
+		pr_info(" no udev too"); 
+	} 
 
 
-	memcpy(dev->cbw_buffer ,&dev->my_cbw, CBW_LEN); 	
+	memset(dev->cbw_buffer , 0 , CBW_LEN); 
+
+	SCSI_INQUIRY(dev->my_cbw , 36 ) ; 
+
+
+	
+	print_hex_dump_bytes("cbw ;", DUMP_PREFIX_OFFSET ,&dev->my_cbw , sizeof(dev->my_cbw));
+
+	memcpy(dev->cbw_buffer ,&dev->my_cbw, CBW_LEN) ; 	
+
+       // SCSI_TEST_UNIT_READY(dev->my_cbw); 
+
+ 
+	pr_info(" sending this CBW\n"); 
+	print_hex_dump_bytes("cbw ;", DUMP_PREFIX_OFFSET ,dev->cbw_buffer , CBW_LEN);	
 
 	usb_fill_bulk_urb(dev->cbw_urb, dev->udev , usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr), dev->cbw_buffer , CBW_LEN , cbw_callback , dev ) ; 
 
@@ -657,8 +664,8 @@ int usb_alloc_buffer_and_urb( struct my_usb_storage *dev)
  	pr_info(" Allocating buffer....\n"); 
 
 		
-	/* For CBW  scsi command */
-       	dev->cbw_buffer = kmalloc( 31 , GFP_KERNEL) ; 
+	/* For Inquriry scsi command */
+	dev->cbw_buffer = kmalloc(CBW_LEN , GFP_KERNEL) ; 
 	if( dev->cbw_buffer ==NULL) 
 	{ 
 		pr_err(" cbw_buffer_alloc_err\n"); 
