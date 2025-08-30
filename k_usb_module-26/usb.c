@@ -18,7 +18,7 @@
 
 #define CBW_SIG 0x43425355 
 #define CSW_LEN  13 
-#define CBW_LEN 36 
+#define CBW_LEN 31 
 
 
 /* command_block_wrapper struct */ 
@@ -205,14 +205,16 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 	dev->cbw.bCBWLUN =0 ; 
 	dev->cbw.bCBWCBLength = scmd->cmd_len ; 
 
+	pr_info(" scmd->cmd_len :%d\n",scmd->cmd_len); 
+
 	memcpy( dev->cbw.CBWCB , cdb , scmd->cmd_len);
         memcpy( dev->cbw_buffer , &dev->cbw , CBW_LEN); 	
 
- usb_fill_bulk_urb(dev->cbw_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr), dev->cbw_buffer, sizeof(dev->cbw) , cbw_callback, dev) ;
+ usb_fill_bulk_urb(dev->cbw_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr), dev->cbw_buffer, CBW_LEN  , cbw_callback, dev) ;
 
 	if( usb_submit_urb (dev->cbw_urb , GFP_KERNEL)) 
 	{ 
-		pr_info(" usb_submit_urb() error\n"); 
+		pr_info(" cbw_urb : usb_submit_urb() error\n"); 
 		return -ENOMEM ; 
 	} 
 
@@ -351,13 +353,13 @@ static void csw_callback(  struct urb *urb )
 static void  usb_disconnect( struct usb_interface *interface ) 
 {
         struct Scsi_Host *host =  usb_get_intfdata(interface); 
-	struct my_usb_storage  *dev ; 
 	if( host ) 
 	{ 
+		struct my_usb_storage  *dev ; 
 		dev = shost_priv(host) ; 
-
-
-	
+		scsi_remove_host(host); 
+		usb_set_intfdata(interface , NULL) ; 
+		
 		dev->cbw_tag = 0; 
 		if(deallocate_usb_resource(dev))
 		{ 
@@ -368,11 +370,9 @@ static void  usb_disconnect( struct usb_interface *interface )
 		usb_clear_halt(dev->udev , usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr));
 		usb_clear_halt(dev->udev , usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr)); 	
 	
-		usb_set_intfdata(interface , NULL) ; 
 		usb_put_dev(dev->udev); 
 
 	
-		scsi_remove_host(host); 
 		scsi_host_put(host); 
 	} 
 
