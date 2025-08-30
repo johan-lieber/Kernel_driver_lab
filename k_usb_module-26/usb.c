@@ -188,7 +188,7 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
         dev->direction = direction ; 
 	 	
 
-	memset(&dev->cbw , 0 , bufflen); 
+	memset(&dev->cbw , 0 ,sizeof(dev->cbw)); 
 
 	dev->cbw.dCBWSignature = cpu_to_le32(CBW_SIG); 
 	dev->cbw.dCBWTag = cpu_to_le32(dev->cbw_tag++); 
@@ -205,7 +205,8 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 	dev->cbw.bCBWLUN =0 ; 
 	dev->cbw.bCBWCBLength = scmd->cmd_len ; 
 
-	memcpy( dev->cbw.CBWCB , cdb , scmd->cmd_len); 
+	memcpy( dev->cbw.CBWCB , cdb , scmd->cmd_len);
+        memcpy( dev->cbw_buffer , &dev->cbw , CBW_LEN); 	
 
  usb_fill_bulk_urb(dev->cbw_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr), dev->cbw_buffer, sizeof(dev->cbw) , cbw_callback, dev) ;
 
