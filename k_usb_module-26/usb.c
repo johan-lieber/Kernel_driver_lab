@@ -19,7 +19,7 @@
 #define CBW_SIG 0x43425355 
 #define CSW_LEN  13 
 #define CBW_LEN 31 
-
+#define DATA_LEN 36
 
 /* command_block_wrapper struct */ 
 struct command_block_wrapper { 
@@ -52,7 +52,10 @@ struct my_usb_storage {
 	/* endpoints */ 
 	__u8 bulk_in_endpointaddr ; 
 	__u8 bulk_out_endpointaddr ; 
-	__le32  cbw_tag ; 
+	__le32  cbw_tag ;
+        dma_addr_t cbw_dma ; 
+	dma_addr_t csw_dma ; 
+	dma_addr_t data_dma ; 
 	/* CBW */ 
 	struct urb *cbw_urb; 
 	unsigned char *cbw_buffer ; 
@@ -212,9 +215,14 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 
  usb_fill_bulk_urb(dev->cbw_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr), dev->cbw_buffer, CBW_LEN  , cbw_callback, dev) ;
 
-	if( usb_submit_urb (dev->cbw_urb , GFP_KERNEL)) 
-	{ 
-		pr_info(" cbw_urb : usb_submit_urb() error\n"); 
+  	 dev->cbw_urb->transfer_dma = dev->cbw_dma ; 
+	 dev->cbw_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
+
+ 	int cbw_urb_rtv = usb_submit_urb(dev->cbw_urb , GFP_KERNEL); 
+	if( cbw_urb_rtv) 
+	{
+		pr_info(" cbw_urb : usb_submit_urb() error :%d\n", cbw_urb_rtv); 
+
 		return -ENOMEM ; 
 	} 
 
@@ -251,10 +259,15 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 		if(dev->direction == DMA_FROM_DEVICE) 
 		{ 
 			usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) ,dev->data_buffer , CBW_LEN , data_callback, dev ) ; 
+			
+		  	dev->data_urb->transfer_dma = dev->data_dma ; 
+			dev->data_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
+
+
 			int  ret = usb_submit_urb(dev->data_urb , GFP_ATOMIC);
 			if(ret ) 
 			{ 
-				pr_info(" usb_submit_urb() error\n"); 
+				pr_info(" data_urb : usb_submit_urb() error:%d\n", ret); 
 				return ; 
 			} 
 		} 
@@ -263,10 +276,15 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 		{ 
 			
 			usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr) ,dev->data_buffer , CBW_LEN , data_callback, dev ) ; 
+			
+  			dev->data_urb->transfer_dma = dev->data_dma ; 
+			dev->data_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
+
+
 			int retvalue = usb_submit_urb(dev->data_urb , GFP_ATOMIC); 
 			if( retvalue) 
 			{ 
-				pr_info("usb_submit_urb() error\n"); 
+				pr_info("csw_urb: usb_submit_urb() error:%d\n", retvalue); 
 				return ; 
 			}
 		} 
@@ -274,10 +292,15 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 		/* Submiting  csw   urb */ 
 
 		usb_fill_bulk_urb(dev->csw_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , dev->csw_buffer ,  CSW_LEN , csw_callback, dev ) ;   
+		
+  		dev->csw_urb->transfer_dma = dev->csw_dma ; 
+		dev->csw_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
+
+
 		int csw_rtv = usb_submit_urb(dev->csw_urb, GFP_ATOMIC);
 		if(csw_rtv) 
 		{ 
-			pr_info("csw_urb : usb_submit_urb() error\n"); 
+			pr_info("csw_urb : usb_submit_urb() error:%d\n", csw_rtv); 
 			return ; 
 		} 
 
@@ -307,11 +330,16 @@ static void data_callback(  struct urb *urb )
 
        	/* Submiting  csw   urb */ 
 	usb_fill_bulk_urb(dev->csw_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , dev->csw_buffer ,  CSW_LEN , csw_callback, dev ) ;   
+	
+  	dev->cbw_urb->transfer_dma = dev->cbw_dma ; 
+	dev->cbw_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
+
+
 	int csw_rtv = usb_submit_urb(dev->csw_urb, GFP_ATOMIC);
 	if(csw_rtv) 
 	{
 
-		pr_info("csw_urb : usb_submit_urb() error\n"); 
+		pr_info("csw_urb : usb_submit_urb() error:%d\n", csw_rtv); 
 		return ; 
 	} 		
 	
@@ -391,11 +419,11 @@ int allocate_usb_resource( struct my_usb_storage *dev)
 	 { 
 		 pr_info(" cbw_urb alloc error \n "); 
 		 return -ENOMEM ; 
-	 } 
-	 dev->cbw_buffer = kmalloc(36 , GFP_KERNEL); 
+	 }
+	 dev->cbw_buffer = usb_alloc_coherent(dev->udev, CBW_LEN , GFP_KERNEL, &dev->cbw_dma); 
 	 if( !dev->cbw_buffer) 
 	 { 
-		 pr_info(" cbw_buffer alloc error \n"); 
+		 pr_info(" cbw_buffer usb_alloc_coherent() errror \n"); 
 		 return -ENOMEM ; 
 	 } 
 	 /*Allocating CSW */ 
@@ -405,10 +433,10 @@ int allocate_usb_resource( struct my_usb_storage *dev)
 		 pr_info(" csw_urb alloc error \n"); 
 		 return -ENOMEM ; 
 	 } 
-	 dev->csw_buffer = kmalloc(13 , GFP_KERNEL) ; 
+	 dev->csw_buffer = usb_alloc_coherent(dev->udev, CSW_LEN , GFP_KERNEL, &dev->csw_dma); 
 	 if(dev->csw_buffer ==NULL ) 
 	 { 
-		 pr_info("csw_buffer alloc error \n"); 
+		 pr_info("csw_buffer usb_alloc_coherent() error \n"); 
 		 return -ENOMEM ;
 	 } 
 
@@ -419,10 +447,10 @@ int allocate_usb_resource( struct my_usb_storage *dev)
 		 pr_info(" data_urb alloc error \n"); 
 		 return -ENOMEM ; 
 	 } 
-	 dev->data_buffer = kmalloc(CBW_LEN , GFP_KERNEL) ; 
+	 dev->data_buffer = usb_alloc_coherent(dev->udev, DATA_LEN  , GFP_KERNEL, &dev->data_dma); 
 	 if(dev->data_buffer ==NULL ) 
 	 { 
-		 pr_info("data_buffer alloc error \n"); 
+		 pr_info("data_buffer usb_alloc_coheret() error \n"); 
 		 return -ENOMEM ;
 	 } 
 	 dev_info(&dev->intf->dev , "USB  Resource allocation success \n");
@@ -437,9 +465,9 @@ int  deallocate_usb_resource( struct my_usb_storage *dev)
 	if(dev->cbw_urb && dev->cbw_buffer) 
 	{ 
 		usb_kill_urb(dev->cbw_urb) ;
-		usb_free_urb(dev->cbw_urb) ; 
-		dev->cbw_urb = NULL ; 
-		kfree(dev->cbw_buffer); 
+		usb_free_urb(dev->cbw_urb) ;
+	    	usb_free_coherent(dev->udev, CBW_LEN , dev->cbw_buffer, dev->cbw_dma); 	
+		dev->cbw_urb = NULL ;
 		dev->cbw_buffer= NULL; 
 	}else{ 
 	       return -1 ; 
@@ -449,9 +477,8 @@ int  deallocate_usb_resource( struct my_usb_storage *dev)
 	{ 
 		usb_kill_urb(dev->csw_urb); 
 		usb_free_urb(dev->csw_urb); 
+	    	usb_free_coherent(dev->udev, CSW_LEN , dev->csw_buffer, dev->csw_dma); 	
 		dev->csw_urb =NULL ; 
-
-		kfree(dev->csw_buffer); 
 		dev->csw_buffer = NULL ; 
 	}else { 
 		return -1; 
@@ -463,9 +490,8 @@ int  deallocate_usb_resource( struct my_usb_storage *dev)
 	{ 
 		usb_kill_urb(dev->data_urb); 
 		usb_free_urb(dev->data_urb); 
+	    	usb_free_coherent(dev->udev, DATA_LEN , dev->data_buffer, dev->data_dma); 	
 		dev->data_urb =NULL ; 
-
-		kfree(dev->data_buffer); 
 		dev->data_buffer = NULL ; 
 	}else { 
 		return -1; 
