@@ -126,22 +126,7 @@ static int usb_probe (struct usb_interface *interface  ,const   struct usb_devic
 	dev->udev = usb_get_dev(interface_to_usbdev(interface)); 
 	dev->intf = interface ; 
 	usb_set_intfdata(interface , host); 
- 
-	if( scsi_add_host(host, &interface->dev))
-	{
-		dev_err(&interface->dev , " scsi_add_host() error\n"); 
-		return -EINVAL ; 
-	} 
-
-	scsi_scan_host(host); 
-
-	struct usb_host_interface  *iface_desc = interface->cur_altsetting ; 
-
-	if(!dev &&  !iface_desc)  
-	{
-	       dev_err(&interface->dev, "!dev and !iface_desc error \n"); 
-		return -EINVAL ; 
-	} 
+ 	struct usb_host_interface  *iface_desc = interface->cur_altsetting ; 
 
 
 	/* Calling allocation function */ 
@@ -174,6 +159,21 @@ static int usb_probe (struct usb_interface *interface  ,const   struct usb_devic
 	dev_info(&interface->dev , " Bulk_in_endpointaddr [0x%02x]\n" ,dev->bulk_in_endpointaddr); 
 	dev_info(&interface->dev , " Bulk_out_endpointaddr [0x%02x]\n",dev->bulk_out_endpointaddr); 
 
+
+	if( scsi_add_host(host, &interface->dev))
+	{
+		dev_err(&interface->dev , " scsi_add_host() error\n"); 
+		return -EINVAL ; 
+	} 
+
+	scsi_scan_host(host); 
+
+
+	if(!dev &&  !iface_desc)  
+	{
+	       dev_err(&interface->dev, "!dev and !iface_desc error \n"); 
+		return -EINVAL ; 
+	} 
 	dev_info(&interface->dev , " USB  device attached \n"); 
 	return 0; 
 }
@@ -189,7 +189,7 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 
 	dev->bufferlength = bufflen ;
         dev->direction = direction ; 
-	 	
+	dev->active_scmd = scmd ;  	
 
 	memset(&dev->cbw , 0 , CBW_LEN); 
 
@@ -251,15 +251,16 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 		return ; 
 	} 
  
-	
+		
 
 
 	/* Submitting  data_urb and   csw_urb  if condition  value  gets less then zero   */ 	
 	if( dev->bufferlength > 0 ) 
-	{ 
+	{
+
 		if(dev->direction == DMA_FROM_DEVICE) 
 		{ 
-			usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) ,dev->data_buffer , CBW_LEN , data_callback, dev ) ; 
+			usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) ,dev->data_buffer , dev->bufferlength , data_callback, dev ) ; 
 			
 		  	dev->data_urb->transfer_dma = dev->data_dma ; 
 			dev->data_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
@@ -332,8 +333,8 @@ static void data_callback(  struct urb *urb )
        	/* Submiting  csw   urb */ 
 	usb_fill_bulk_urb(dev->csw_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , dev->csw_buffer ,  CSW_LEN , csw_callback, dev ) ;   
 	
-  	dev->cbw_urb->transfer_dma = dev->cbw_dma ; 
-	dev->cbw_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
+  	dev->csw_urb->transfer_dma = dev->csw_dma ; 
+	dev->csw_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
 
 
 	int csw_rtv = usb_submit_urb(dev->csw_urb, GFP_ATOMIC);
@@ -363,7 +364,7 @@ static void csw_callback(  struct urb *urb )
 
 	struct command_status_wrapper  *csw = (struct command_status_wrapper *) urb->transfer_buffer; 
 
-	if(  le32_to_cpu(csw->dCSWSignature)!= CBW_SIG)
+	if(  le32_to_cpu(csw->dCSWSignature)!= CSW_SIG)
 	{ 
 		pr_err(" Invalid CSW signature  \n"); 
 		return ; 
