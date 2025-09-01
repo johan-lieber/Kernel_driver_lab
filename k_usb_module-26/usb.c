@@ -15,7 +15,7 @@
 #include <scsi/scsi_device.h> 
 #include <linux/workqueue.h> 
 #include <scsi/scsi_cmnd.h>
-
+#define CSW_SIG 0x53425355
 #define CBW_SIG 0x43425355 
 #define CSW_LEN  13 
 #define CBW_LEN 31 
@@ -30,14 +30,14 @@ struct command_block_wrapper {
 	__u8 bCBWLUN; 
 	__u8 bCBWCBLength ; 
 	__u8 CBWCB[16] ; 
-} __attribute__((packed)) ; 
+}__attribute__((packed)) ; 
 /* command status wrapper struct */ 
 struct command_status_wrapper { 
 	__le32 dCSWSignature ; 
 	__le32 dCSWTag ; 
 	__le32 dCSWDataResidue; 
 	__u8 bCSWStatus ; 
-} __attribute__((packed)) ;
+}__attribute__((packed)) ;
 
 /* custom struct */ 
 struct my_usb_storage { 
@@ -98,7 +98,7 @@ static struct scsi_host_template  my_sht ={
 
 /*  Usb driver  structure */ 
 static struct usb_driver   exmp_usb_driver = { 
-	.name = "usb-storage-driver" , 
+	.name = "usb-storage-meow" , 
 	.probe = usb_probe , 
 	.disconnect = usb_disconnect , 
 	.id_table = usb_table , 
@@ -191,34 +191,35 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
         dev->direction = direction ; 
 	 	
 
-	memset(&dev->cbw , 0 ,sizeof(dev->cbw)); 
+	memset(&dev->cbw , 0 , CBW_LEN); 
 
 	dev->cbw.dCBWSignature = cpu_to_le32(CBW_SIG); 
 	dev->cbw.dCBWTag = cpu_to_le32(dev->cbw_tag++); 
 	dev->cbw.dCBWDataTransferLength  = cpu_to_le32(bufflen); 
 
-	 
-	if( direction == DMA_FROM_DEVICE )
-	{ 
-		dev->cbw.bmCBWFlags = 0x80; 
-	}else if (direction  == DMA_TO_DEVICE) 
-	{ 
-		dev->cbw.bmCBWFlags = 0x00 ; 
-	} 
+	pr_info(" bufflen :%d \n", bufflen);  
+	dev->cbw.bmCBWFlags=  (  direction ==DMA_FROM_DEVICE) ? 0x80 : 0x00 ; 
 	dev->cbw.bCBWLUN =0 ; 
-	dev->cbw.bCBWCBLength = scmd->cmd_len ; 
+	dev->cbw.bCBWCBLength =min_t(u8 , scmd->cmd_len, sizeof(dev->cbw.CBWCB)); 
+
 
 	pr_info(" scmd->cmd_len :%d\n",scmd->cmd_len); 
+	if( !dev->cbw_buffer ||  !dev->cbw_urb)  
+	{ 
+		pr_info(" cbw_urb || cbw_buffer error\n"); 
+		return -1 ;
+	} 
 
-	memcpy( dev->cbw.CBWCB , cdb , scmd->cmd_len);
+	memcpy( dev->cbw.CBWCB , cdb , dev->cbw.bCBWCBLength);
         memcpy( dev->cbw_buffer , &dev->cbw , CBW_LEN); 	
+
 
  usb_fill_bulk_urb(dev->cbw_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr), dev->cbw_buffer, CBW_LEN  , cbw_callback, dev) ;
 
   	 dev->cbw_urb->transfer_dma = dev->cbw_dma ; 
 	 dev->cbw_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
 
- 	int cbw_urb_rtv = usb_submit_urb(dev->cbw_urb , GFP_KERNEL); 
+ 	int cbw_urb_rtv = usb_submit_urb(dev->cbw_urb , GFP_ATOMIC); 
 	if( cbw_urb_rtv) 
 	{
 		pr_info(" cbw_urb : usb_submit_urb() error :%d\n", cbw_urb_rtv); 
