@@ -288,7 +288,9 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 		scmd->result =  (DID_ERROR << 16 ) ;
 	       	scsi_done(dev->active_scmd); 
 	       	return -ENOMEM ; 
-	} 
+	}
+      	
+        dev_info(&dev->intf->dev,  " CBW send ---->> \n"); 	
 	return 0 ; 
 } 
 
@@ -297,6 +299,7 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 static void  cbw_callback( struct urb *urb ) 
 { 
 	struct my_usb_storage  *dev  = urb->context ; 
+        dev_info(&dev->intf->dev, " Reached data_callback() \n"); 	
 	struct command_block_wrapper  *cbw = (struct command_block_wrapper *) urb->transfer_buffer; 
 	
 	if( urb->status  < 0 ) 
@@ -322,12 +325,23 @@ static void  cbw_callback( struct urb *urb )
 		return ; 
 	}
 
+        dev_info(&dev->intf->dev, "  submitting urbs ---- \n"); 
+	pr_info(" buffer  length is :%d \n", dev->bufferlength ); 
+	if( !dev->data_buffer) 
+	{ 
+		pr_info(" no data_buffer \n"); 
+	} 
+
+	pr_info(" data urb setup : dir=%d , ep=0x%02x  , len=%d\n", dev->direction , dev->bulk_in_endpointaddr, dev->bufferlength); 
 	/* Submitting  data_urb and   csw_urb  if condition  value  gets less then zero   */ 	
 	if( dev->bufferlength > 0 ) 
 	{
+		 pr_info("  bufferlength is greater > 0 =:%d\n", dev->bufferlength); 
 
 		if(dev->direction == DMA_FROM_DEVICE) 
-		{ 
+		{
+		       pr_info(" DMA_FROM_DEVICE"); 
+
 usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) ,dev->data_buffer , dev->bufferlength , data_callback, dev ) ; 
 			
 		  	dev->data_urb->transfer_dma = dev->data_dma ; 
@@ -345,7 +359,8 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->b
 		} 
 
 		if(dev->direction == DMA_TO_DEVICE) 
-		{ 
+		{
+		       pr_info(" DMA-TO-DEVICE \n");	
 			
 usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr) ,dev->data_buffer , dev->bufferlength , data_callback, dev ) ; 
 			
@@ -362,7 +377,8 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->b
 				return ; 
 			}
 		} 
-	}else{ 
+	}else{
+	       pr_info("  direcly submitting csw now \n"); 	
 		/* Submiting  csw   urb */ 
 	usb_fill_bulk_urb(dev->csw_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , dev->csw_buffer ,  CSW_LEN , csw_callback, dev ) ;   
 		
@@ -386,8 +402,9 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->b
 
 /* Data_callback function */ 
 static void data_callback(  struct urb *urb ) 
-{ 
+{
 	struct my_usb_storage  *dev  = urb->context ;
+        dev_info(&dev->intf->dev, " Reached data_callback() \n"); 	
         	
 
 	if( urb->status < 0 ) 
