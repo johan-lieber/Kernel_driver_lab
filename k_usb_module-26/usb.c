@@ -84,6 +84,11 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd );
 static void  cbw_callback( struct urb *urb ); 
 static void csw_callback ( struct urb *urb ); 
 static void data_callback ( struct urb *urb); 
+int  usb_eh_abort( struct scsi_cmnd *cmd); 
+int usb_eh_dev_reset( struct scsi_cmnd *cmd); 
+int usb_eh_bus_reset( struct scsi_cmnd *cmd); 
+int usb_eh_host_reset( struct scsi_cmnd *cmd); 
+
 
 /* scsi host template */ 
 static struct scsi_host_template  my_sht ={
@@ -94,10 +99,10 @@ static struct scsi_host_template  my_sht ={
      	.sg_tablesize = -1 , 
 	.max_sectors = 240, 
 	.cmd_per_lun = 1 ,
-        .eh_abort_handler = NULL , 
-	.eh_device_reset_handler=  NULL , 
- 	.eh_bus_reset_handler  = NULL , 
-	.eh_host_reset_handler = NULL , 
+        .eh_abort_handler = usb_eh_abort, 
+	.eh_device_reset_handler= usb_eh_dev_reset , 
+ 	.eh_bus_reset_handler  = usb_eh_bus_reset, 
+	.eh_host_reset_handler = usb_eh_host_reset , 
 
  	}; 
 
@@ -225,6 +230,15 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
         dev->direction = direction ; 
 	dev->active_scmd = scmd ;  	
 
+	if (dev->bufferlength ) 
+	{ 
+		 dev->data_buffer = usb_alloc_coherent(dev->udev, dev->bufferlength  , GFP_KERNEL, &dev->data_dma); 
+		 if(dev->data_buffer ==NULL ) 
+		 { 
+			 pr_info("data_buffer usb_alloc_coheret() error \n"); 
+			  return -ENOMEM ;
+		 } 
+	} 
 
 	memset(&dev->cbw , 0 , CBW_LEN);
 	dev->cbw.dCBWSignature = cpu_to_le32(CBW_SIG); 
@@ -394,8 +408,7 @@ static void data_callback(  struct urb *urb )
 	if(csw_rtv) 
 	{
                 dev_err(&dev->intf->dev, " csw_urb : usb_submit_urb() error :%d \n", csw_rtv ); /*  csw_rtv    mean  csw_returnvalue in short */ 
-		dev->active_scmd->result = (DID_ERROR >> 16 ) ; 
-		//dev->active_scmd->scsi_done(dev->active_scmd);
+		dev->active_scmd->result = (DID_ERROR << 16 ) ; 
 	        scsi_done(dev->active_scmd); 	
 		return ; 
 	} 		
@@ -424,9 +437,29 @@ static void csw_callback(  struct urb *urb )
 
 	if(  le32_to_cpu(csw->dCSWSignature)!= CSW_SIG)
 	{ 
-		pr_err(" Invalid CSW signature  \n"); 
+		pr_err(" Invalid CSW signature  \n");
+	        dev->active_scmd->result = (DID_ERROR << 16 )  ; 
+		scsi_done(dev->active_scmd); 	
 		return ; 
+	}
+
+	switch( csw->dCSWSignature) 
+	{ 
+		case 0:
+			dev->active_scmd = ( DID_OK <<16 ) | SAM_STAT_GOOD; 
+			 break ; 
+		case 1:
+			 dev->active_scmd->result = ( DID_ERROR << 16 ) | SAM_STAT_CHECK_CONDITION ; 
+			 break ; 
+		case 2 :
+			 dev->active_scmd->result = ( DID_ERROR << 16 ) | SAM_STAT_CHECK_CONDITION; 
+			 break; 
+		default:
+			 dev->active_scmd->result = ( DID_ERROR << 16); 
+			 break ; 
 	} 
+
+				
 
 
 	dev->active_scmd->result =  (  DID_OK  << 16 ) |  SAM_STAT_GOOD; 
@@ -438,6 +471,35 @@ static void csw_callback(  struct urb *urb )
 
 
 }
+
+
+int  usb_eh_abort( struct scsi_cmnd *cmd) 
+{ 
+	pr_info("  usb_eh_abort () \n"); 
+	return 0 ; 
+} 
+
+
+int usb_eh_dev_reset( struct scsi_cmnd *cmd) 
+{ 
+	pr_info(" usb_eh_dev_reset() \n"); 
+	return  0 ; 
+} 
+
+int usb_eh_bus_reset( struct scsi_cmnd *cmd) 
+{ 
+	pr_info("usb_eh_bus_rest() \n"); 
+	return 0 ; 
+} 
+
+int usb_eh_host_reset( struct scsi_cmnd *cmd) 
+{ 
+	pr_info("usb_eh_host_rest() \n"); 
+ 	return 0 ; 
+} 
+
+
+
 /* usb_disconnect function */
 static void  usb_disconnect( struct usb_interface *interface ) 
 {
@@ -508,12 +570,6 @@ int allocate_usb_resource( struct my_usb_storage *dev)
 		 pr_info(" data_urb alloc error \n"); 
 		 return -ENOMEM ; 
 	 } 
-	 dev->data_buffer = usb_alloc_coherent(dev->udev, DATA_LEN  , GFP_KERNEL, &dev->data_dma); 
-	 if(dev->data_buffer ==NULL ) 
-	 { 
-		 pr_info("data_buffer usb_alloc_coheret() error \n"); 
-		 goto  r_data;
-	 } 
 	 dev_info(&dev->intf->dev , "USB  Resource allocation success \n");
 	 return 0 ;
 
@@ -552,26 +608,8 @@ r_csw:
 		 } 
 	  return -1 ;
 	 } 
-	 
-r_data: 
 
-	if( dev->data_urb || dev->data_buffer) 
-	 {
-		 if( dev->data_urb) 
-		 { 
-			 usb_kill_urb(dev->data_urb); 
-			 usb_free_urb(dev->data_urb); 
-			 dev->data_urb= NULL ; 	
-		 } 
-		 if( dev->data_buffer) 
-		 { 
-			 usb_free_coherent(dev->udev, DATA_LEN , dev->data_buffer , dev->data_dma); 
-			 dev->data_buffer = NULL ; 
-		 } 
-	  return -1 ; 
-	 }
-  return  -1 ; 
- 
+	return -1 ; 
 }
 
 
