@@ -19,7 +19,7 @@
 #define CBW_SIG 0x43425355 
 #define CSW_LEN  13 
 #define CBW_LEN 31 
-#define DATA_LEN 36
+#define DATA_LEN  512
 
 /* command_block_wrapper struct */ 
 struct command_block_wrapper { 
@@ -314,7 +314,7 @@ static void  cbw_callback( struct urb *urb )
 
 		if(dev->direction == DMA_FROM_DEVICE) 
 		{ 
-			usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) ,dev->data_buffer , dev->bufferlength , data_callback, dev ) ; 
+usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) ,dev->data_buffer , dev->bufferlength , data_callback, dev ) ; 
 			
 		  	dev->data_urb->transfer_dma = dev->data_dma ; 
 			dev->data_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
@@ -333,7 +333,7 @@ static void  cbw_callback( struct urb *urb )
 		if(dev->direction == DMA_TO_DEVICE) 
 		{ 
 			
-			usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr) ,dev->data_buffer , CBW_LEN , data_callback, dev ) ; 
+usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr) ,dev->data_buffer , dev->bufferlength , data_callback, dev ) ; 
 			
   			dev->data_urb->transfer_dma = dev->data_dma ; 
 			dev->data_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
@@ -429,7 +429,7 @@ static void csw_callback(  struct urb *urb )
 	} 
 
 
-	dev->active_scmd->result =  (  DID_OK ); 
+	dev->active_scmd->result =  (  DID_OK  << 16 ) |  SAM_STAT_GOOD; 
 	scsi_done(scmd); 
 	dev->active_scmd = NULL; 
 
