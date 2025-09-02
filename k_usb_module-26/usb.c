@@ -123,21 +123,20 @@ static int usb_probe (struct usb_interface *interface  ,const   struct usb_devic
 	if(!host) 
 	{ 
 		dev_err(&interface->dev , " scsi_host_alloc() error\n"); 
-		return -ENOMEM ; 
-	} 
-
-	if(!dev ||  !iface_desc)  
-	{
-	       dev_err(&interface->dev," No dev && iface_desc found  \n"); 
-		return -EINVAL ; 
+        	goto r_host ; 
 	} 
 
 	dev = shost_priv(host); 
 	dev->udev = usb_get_dev(interface_to_usbdev(interface)); 
 	dev->intf = interface ; 
 	usb_set_intfdata(interface , host); 
-
+	dev->cbw_tag = 1 ; 
+	if(!dev ||  !iface_desc)  
+	{
+	       dev_err(&interface->dev," No dev && iface_desc found  \n"); 
+		return -EINVAL ; 
 	
+	}	
 	
 	
 	/* Calling allocation function */ 
@@ -174,14 +173,40 @@ static int usb_probe (struct usb_interface *interface  ,const   struct usb_devic
 	/* Adding host to scsi */ 
 	if( scsi_add_host(host, &interface->dev))
 	{
-		dev_err(&interface->dev , " scsi_add_host() error\n"); 
-		return -EINVAL ; 
+		dev_err(&interface->dev , " scsi_add_host() error\n");
+	        goto  r_scsi ; 	
 	} 
 
 	scsi_scan_host(host); 
 
 	dev_info(&interface->dev , " USB  device attached \n"); 
 	return 0; 
+
+r_host: 
+	if(host)
+	{	
+		scsi_remove_host(host); 
+		if(deallocate_usb_resource(dev)) 
+		{ 
+			dev_err(&dev->intf->dev, " error in init_protocol cleanup \n"); 
+		}  		
+			scsi_host_put(host);  
+			return -1 ;	
+	} 
+			
+
+r_scsi:
+       		if(host) 
+		{	
+			scsi_remove_host(host); 
+			if(deallocate_usb_resource(dev)) 
+			{ 
+				dev_err(&dev->intf->dev, " error in init_protocol cleanup \n"); 
+			}  		
+			scsi_host_put(host);  
+			return -1 ;
+		} 
+		return -1 ;
 } 
 
 
@@ -190,7 +215,7 @@ static int usb_probe (struct usb_interface *interface  ,const   struct usb_devic
 static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd ) 
 { 
 	struct my_usb_storage *dev = shost_priv(host); 
-	unsigned char *cdb  = scmd->cmnd ; 
+	//unsigned char *cdb  = scmd->cmnd ; 
         	
 	int direction  = scmd->sc_data_direction;
 	unsigned int bufflen  = scsi_bufflen(scmd); 
@@ -209,26 +234,39 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 	dev->cbw.bCBWLUN =0 ; 
 	dev->cbw.bCBWCBLength =min_t(u8 , scmd->cmd_len, sizeof(dev->cbw.CBWCB)); 
 
-	/* Checkings */ 
-	 pr_info("BufferLengh  : %d\n",dev->bufferlength);
-
 	if( !dev->cbw_buffer ||  !dev->cbw_urb)  
 	{ 
 		dev_err(&dev->intf->dev , "Resource not allocated \n"); 
 		return -ENOMEM  ;
 	} 
 
-	memcpy( dev->cbw.CBWCB , cdb , dev->cbw.bCBWCBLength);
+	
+	memcpy( dev->cbw.CBWCB ,  scmd->cmnd , dev->cbw.bCBWCBLength);
         memcpy( dev->cbw_buffer , &dev->cbw , CBW_LEN); 	
 
-	
+	pr_info(" CBW-----------------------------\n"); 
+	pr_info("dCBWSignature		:0x%08x\n", le32_to_cpu(dev->cbw.dCBWSignature)); 
+	pr_info("dCBWTag		:0x%08x\n",le32_to_cpu(dev->cbw.dCBWTag)); 
+	pr_info("dCBWDataTranferLength  :%u\n",le32_to_cpu(dev->cbw.dCBWDataTransferLength)); 
+	pr_info("dCBWFlags 		:0x%02x (%s)\n", dev->cbw.bmCBWFlags,(dev->cbw.bmCBWFlags & 0x80)? "DATA-IN":"DATA-OUT"); 
+	pr_info("bCBWLUN 		:%u\n", dev->cbw.bCBWLUN); 
+	pr_info("bCBWCBLength 		:%u\n", dev->cbw.bCBWCBLength);
+	pr_info(" CBWCB			:	"); 
+	for( int i = 0 ; i < dev->cbw.bCBWCBLength ; i++) 
+	{
+		pr_cont("%02x ", dev->cbw.CBWCB[i]);
+		pr_cont("\n"); 
+	} 
+
+
+
 	usb_fill_bulk_urb(dev->cbw_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr), dev->cbw_buffer, CBW_LEN  , cbw_callback, dev) ;
 
 	/* Submitting  DMA  buffer */	
   	dev->cbw_urb->transfer_dma = dev->cbw_dma ; 
 	dev->cbw_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
 
- 	int cbw_urb_rtv = usb_submit_urb(dev->cbw_urb , GFP_ATOMIC); 
+ 	int cbw_urb_rtv = usb_submit_urb(dev->cbw_urb , GFP_KERNEL); 
 	if( cbw_urb_rtv) 
 	{
 		pr_info(" cbw_urb : usb_submit_urb() error :%d\n", cbw_urb_rtv); 
@@ -247,7 +285,7 @@ static void  cbw_callback( struct urb *urb )
 	struct my_usb_storage  *dev  = urb->context ; 
 	struct command_block_wrapper  *cbw = (struct command_block_wrapper *) urb->transfer_buffer; 
 	
-	if( urb->status) 
+	if( urb->status  < 0 ) 
 	{
 		dev_err(&dev->intf->dev, " Bad cbw submission:%d\n", urb->status );
 	        dev->active_scmd->result =  ( DID_ERROR << 16 ) ; 
@@ -264,6 +302,11 @@ static void  cbw_callback( struct urb *urb )
  
 		
 
+	if(!dev) 
+	{ 
+		pr_info(" no dev \n"); 
+		return ; 
+	}
 
 	/* Submitting  data_urb and   csw_urb  if condition  value  gets less then zero   */ 	
 	if( dev->bufferlength > 0 ) 
@@ -333,7 +376,7 @@ static void data_callback(  struct urb *urb )
 	struct my_usb_storage  *dev  = urb->context ;
         	
 
-	if( urb->status) 
+	if( urb->status < 0 ) 
 	{ 
                 dev_err(&dev->intf->dev, "Bad data_urb submission %d\n", urb->status );  
 		dev->active_scmd->result = (DID_ERROR >> 16 ) ; 
@@ -370,7 +413,7 @@ static void csw_callback(  struct urb *urb )
 	struct scsi_cmnd *scmd  = dev->active_scmd ; 
 
 
-	if( urb->status == ( -EPIPE  || -ENOENT   || -ESHUTDOWN )) 
+	if( urb->status < 0) 
 	{ 
 		dev_err(&dev->intf->dev," Bad data_urb submission :%d\n", urb->status) ;
 	        scmd->result = ( DID_ERROR << 16);
@@ -543,8 +586,7 @@ int  deallocate_usb_resource( struct my_usb_storage *dev)
 	    	usb_free_coherent(dev->udev, CBW_LEN , dev->cbw_buffer, dev->cbw_dma); 	
 		dev->cbw_urb = NULL ;
 		dev->cbw_buffer= NULL; 
-	}else{ 
-	       return -1 ; 
+	 
 	} 	       
 
 	if(dev->csw_urb && dev->csw_buffer) 
@@ -554,10 +596,7 @@ int  deallocate_usb_resource( struct my_usb_storage *dev)
 	    	usb_free_coherent(dev->udev, CSW_LEN , dev->csw_buffer, dev->csw_dma); 	
 		dev->csw_urb =NULL ; 
 		dev->csw_buffer = NULL ; 
-	}else { 
-		return -1; 
-	} 
-
+	}
 
 
 	if(dev->data_urb && dev->data_buffer) 
@@ -567,9 +606,7 @@ int  deallocate_usb_resource( struct my_usb_storage *dev)
 	    	usb_free_coherent(dev->udev, DATA_LEN , dev->data_buffer, dev->data_dma); 	
 		dev->data_urb =NULL ; 
 		dev->data_buffer = NULL ; 
-	}else { 
-		return -1; 
-	} 
+	}
 
 	dev_info(&dev->intf->dev , " USB deallocation success \n"); 
 	
