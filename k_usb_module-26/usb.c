@@ -231,8 +231,11 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 	dev->active_scmd = scmd ;  	
 
 	if (dev->bufferlength ) 
-	{ 
-		 dev->data_buffer = usb_alloc_coherent(dev->udev, dev->bufferlength  , GFP_KERNEL, &dev->data_dma); 
+	{
+		pr_info(" buffer length is %d\n", bufflen);
+	         pr_info(" databuffer alocated \n"); 	
+		 //dev->data_buffer = usb_alloc_coherent(dev->udev,  bufflen  , GFP_KERNEL, &dev->data_dma);
+		 dev->data_buffer = kmalloc(bufflen , GFP_KERNEL);  
 		 if(dev->data_buffer ==NULL ) 
 		 { 
 			 pr_info("data_buffer usb_alloc_coheret() error \n"); 
@@ -297,9 +300,9 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 
 /*  cbw_callback function */ 
 static void  cbw_callback( struct urb *urb ) 
-{ 
+{
 	struct my_usb_storage  *dev  = urb->context ; 
-        dev_info(&dev->intf->dev, " Reached data_callback() \n"); 	
+        dev_info(&dev->intf->dev, " Reached cbw_callback() \n"); 	
 	struct command_block_wrapper  *cbw = (struct command_block_wrapper *) urb->transfer_buffer; 
 	
 	if( urb->status  < 0 ) 
@@ -330,8 +333,9 @@ static void  cbw_callback( struct urb *urb )
 	if( !dev->data_buffer) 
 	{ 
 		pr_info(" no data_buffer \n"); 
-	} 
+	}
 
+	pr_info(" Data urb ==> status=%d  actuallength=%d\n", urb->status , urb->actual_length);
 	pr_info(" data urb setup : dir=%d , ep=0x%02x  , len=%d\n", dev->direction , dev->bulk_in_endpointaddr, dev->bufferlength); 
 	/* Submitting  data_urb and   csw_urb  if condition  value  gets less then zero   */ 	
 	if( dev->bufferlength > 0 ) 
@@ -404,7 +408,9 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->b
 static void data_callback(  struct urb *urb ) 
 {
 	struct my_usb_storage  *dev  = urb->context ;
-        dev_info(&dev->intf->dev, " Reached data_callback() \n"); 	
+        struct scsi_cmnd *scmd  = dev->active_scmd ;  
+
+	dev_info(&dev->intf->dev, " Reached data_callback() \n"); 	
         	
 
 	if( urb->status < 0 ) 
@@ -412,7 +418,24 @@ static void data_callback(  struct urb *urb )
                 dev_err(&dev->intf->dev, "Bad data_urb submission %d\n", urb->status );  
 		dev->active_scmd->result = (DID_ERROR >> 16 ) ; 
 		scsi_done(dev->active_scmd); 
+	}
+        pr_info(" actual_length is data_callback is %d\n",urb->actual_length); 
+	
+	if( scmd && urb->actual_length > 0 ) 
+	{ 
+		scsi_sg_copy_from_buffer( scmd , dev->data_buffer , urb->actual_length); 
 	} 
+
+	if( scmd)
+	{ 
+		unsigned int resid  =0 ; 
+		if(dev->bufferlength > urb->actual_length ) 
+		{ 
+			resid = dev->bufferlength - urb->actual_length ; 
+			scsi_set_resid(scmd , resid); 
+	 		pr_info(" set_ scsu resid = %u\n", resid); 
+		} 
+	} 	
 
        	/* Submiting  csw   urb */ 
 	usb_fill_bulk_urb(dev->csw_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , dev->csw_buffer ,  CSW_LEN , csw_callback, dev ) ;   
@@ -439,6 +462,7 @@ static void data_callback(  struct urb *urb )
 /* csw_callback function */ 
 static void csw_callback(  struct urb *urb ) 
 { 
+        pr_info(" REACHED CSW_CALLBACK FUNCTION \n"); 	
 	struct my_usb_storage  *dev  = urb->context ; 
 	struct scsi_cmnd *scmd  = dev->active_scmd ; 
 
