@@ -234,8 +234,8 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 	{
 		pr_info(" buffer length is %d\n", bufflen);
 	         pr_info(" databuffer alocated \n"); 	
-		 //dev->data_buffer = usb_alloc_coherent(dev->udev,  bufflen  , GFP_KERNEL, &dev->data_dma);
-		 dev->data_buffer = kmalloc(bufflen , GFP_KERNEL);  
+	 	 dev->data_buffer = usb_alloc_coherent(dev->udev,  bufflen  , GFP_KERNEL, &dev->data_dma);
+		// dev->data_buffer = kmalloc(bufflen , GFP_KERNEL) ; 
 		 if(dev->data_buffer ==NULL ) 
 		 { 
 			 pr_info("data_buffer usb_alloc_coheret() error \n"); 
@@ -304,7 +304,6 @@ static void  cbw_callback( struct urb *urb )
 	struct my_usb_storage  *dev  = urb->context ; 
         dev_info(&dev->intf->dev, " Reached cbw_callback() \n"); 	
 	struct command_block_wrapper  *cbw = (struct command_block_wrapper *) urb->transfer_buffer; 
-	
 	if( urb->status  < 0 ) 
 	{
 		dev_err(&dev->intf->dev, " Bad cbw submission:%d\n", urb->status );
@@ -330,7 +329,7 @@ static void  cbw_callback( struct urb *urb )
 
         dev_info(&dev->intf->dev, "  submitting urbs ---- \n"); 
 	pr_info(" buffer  length is :%d \n", dev->bufferlength ); 
-	if( !dev->data_buffer) 
+	if( !dev->data_buffer || !dev->data_urb) 
 	{ 
 		pr_info(" no data_buffer \n"); 
 	}
@@ -351,7 +350,7 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->b
 		  	dev->data_urb->transfer_dma = dev->data_dma ; 
 			dev->data_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
 
-
+			pr_info(" UNTILL  data_urb \n");
 			int  ret = usb_submit_urb(dev->data_urb , GFP_ATOMIC);
 			if(ret ) 
 			{
@@ -359,7 +358,9 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->b
 				dev->active_scmd->result = ( DID_ERROR << 16 ) ; 
 				scsi_done(dev->active_scmd) ; 
 				return ; 
-			} 
+			}
+
+			pr_info(" FINISHED DATA_URB \n");
 		} 
 
 		if(dev->direction == DMA_TO_DEVICE) 
@@ -368,9 +369,9 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->b
 			
 usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr) ,dev->data_buffer , dev->bufferlength , data_callback, dev ) ; 
 			
-  			dev->data_urb->transfer_dma = dev->data_dma ; 
-			dev->data_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
-
+//  			dev->data_urb->transfer_dma = dev->data_dma ; 
+//			dev->data_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
+//
 
 			int retvalue = usb_submit_urb(dev->data_urb , GFP_ATOMIC); 
 			if( retvalue) 
@@ -390,6 +391,7 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->b
 		dev->csw_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
 
 
+		pr_info(" in csw submission \n");
 		int csw_rtv = usb_submit_urb(dev->csw_urb, GFP_ATOMIC);
 		if(csw_rtv) 
 		{
