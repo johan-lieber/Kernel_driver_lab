@@ -306,7 +306,8 @@ static void  cbw_callback( struct urb *urb )
 	struct command_block_wrapper  *cbw = (struct command_block_wrapper *) urb->transfer_buffer; 
 	if( urb->status  < 0 ) 
 	{
-		dev_err(&dev->intf->dev, " Bad cbw submission:%d\n", urb->status );
+		dev_err(&dev->intf->dev, " Bad cbw submission:%d\n", urb->status ); 
+		usb_clear_halt(dev->udev, usb_sndbulkpipe(dev->udev, dev->bulk_in_endpointaddr)); 
 	        dev->active_scmd->result =  ( DID_ERROR << 16 ) ; 
 	        scsi_done(dev->active_scmd); 
       		return ; 	       
@@ -358,7 +359,7 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->b
 				dev->active_scmd->result = ( DID_ERROR << 16 ) ; 
 				scsi_done(dev->active_scmd) ; 
 				return ; 
-			}
+			} 
 
 			pr_info(" FINISHED DATA_URB \n");
 		} 
@@ -409,6 +410,7 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->b
 /* Data_callback function */ 
 static void data_callback(  struct urb *urb ) 
 {
+	pr_info(" finally reached  datacallback() \n"); 
 	struct my_usb_storage  *dev  = urb->context ;
         struct scsi_cmnd *scmd  = dev->active_scmd ;  
 
@@ -518,8 +520,40 @@ static void csw_callback(  struct urb *urb )
 
 int  usb_eh_abort( struct scsi_cmnd *cmd) 
 { 
-	pr_info("  usb_eh_abort () \n"); 
-	return 0 ; 
+	pr_info("  usb_eh_abort () \n");
+        struct Scsi_Host *host = cmd->device->host ; 	
+	struct my_usb_storage *dev = shost_priv(host); 
+	
+	int ret ; 
+	dev_info(&dev->intf->dev , "eh_abort: Aborting command \n"); 
+	ret  = usb_clear_halt(dev->udev, usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr )); 
+	if( ret) 
+	{ 
+		dev_err(&dev->intf->dev ,"eh_abort : failed to clear bulk out :%d\n", ret);
+	}	
+	ret =  usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr )); 		
+	if( ret) 
+	{ 
+		dev_err(&dev->intf->dev ,"eh_abort : failed to clear bulk in  :%d\n", ret); 
+	} 
+	 
+	if( dev->cbw_urb) 
+	{ 
+		usb_kill_urb(dev->cbw_urb); 
+	} 
+	if( dev->csw_urb) 
+	{ 
+		usb_kill_urb(dev->csw_urb) ; 
+	} 
+	if(dev->data_urb) 
+	{ 
+		usb_kill_urb(dev->data_urb); 
+	} 
+
+	cmd->result = (DID_ABORT <<16) ; 
+	scsi_done(cmd); 
+
+	return  SUCCESS ; 
 } 
 
 
