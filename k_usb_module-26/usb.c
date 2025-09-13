@@ -15,11 +15,14 @@
 #include <scsi/scsi_device.h> 
 #include <linux/workqueue.h> 
 #include <scsi/scsi_cmnd.h>
+#include <linux/mutex.h>
+
 #define CSW_SIG 0x53425355
 #define CBW_SIG 0x43425355 
 #define CSW_LEN  13 
 #define CBW_LEN 31 
 #define DATA_LEN  512
+#define MAX_FAIL_THRSHHOLD 2 
 
 /* command_block_wrapper struct */ 
 struct command_block_wrapper { 
@@ -49,6 +52,9 @@ struct my_usb_storage {
 	unsigned int bufferlength ; 
 	unsigned  int direction ; 
 	struct scsi_cmnd *active_scmd ; 	
+	struct mutex    usb_lock ; 
+
+  	unsigned int flag ; 	
 	/* endpoints */ 
 	__u8 bulk_in_endpointaddr ; 
 	__u8 bulk_out_endpointaddr ; 
@@ -84,21 +90,25 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd );
 static void  cbw_callback( struct urb *urb ); 
 static void csw_callback ( struct urb *urb ); 
 static void data_callback ( struct urb *urb); 
+int usb_pre_reset(struct usb_interface *iface);
+int usb_post_reset(struct usb_interface *iface); 
 int  usb_eh_abort( struct scsi_cmnd *cmd); 
 int usb_eh_dev_reset( struct scsi_cmnd *cmd); 
 int usb_eh_bus_reset( struct scsi_cmnd *cmd); 
 int usb_eh_host_reset( struct scsi_cmnd *cmd); 
+static int slave_alloc(struct scsi_device *dev, struct queue_limits *queue ); 
 
 
 /* scsi host template */ 
 static struct scsi_host_template  my_sht ={
        .name= " usb-storage",
 	.queuecommand = queue_command ,
-       .can_queue = 1 , 
+        .can_queue = 1 , 
 	.this_id  = -1 , 
      	.sg_tablesize = -1 , 
 	.max_sectors = 240, 
 	.cmd_per_lun = 1 ,
+	.sdev_configure = slave_alloc,
         .eh_abort_handler = usb_eh_abort, 
 	.eh_device_reset_handler= usb_eh_dev_reset , 
  	.eh_bus_reset_handler  = usb_eh_bus_reset, 
@@ -110,7 +120,9 @@ static struct scsi_host_template  my_sht ={
 static struct usb_driver   exmp_usb_driver = { 
 	.name = "usb-storage-meow" , 
 	.probe = usb_probe , 
-	.disconnect = usb_disconnect , 
+	.pre_reset = usb_pre_reset, 
+	.post_reset = usb_post_reset,
+       	.disconnect = usb_disconnect , 
 	.id_table = usb_table , 
 };
 
@@ -182,7 +194,10 @@ static int usb_probe (struct usb_interface *interface  ,const   struct usb_devic
 	        goto  r_scsi ; 	
 	} 
 
-	scsi_scan_host(host); 
+	scsi_scan_host(host);
+        
+	/*  Initializing   mutex lock */ 
+	mutex_init(&dev->usb_lock);	
 
 	dev_info(&interface->dev , " USB  device attached \n"); 
 	return 0; 
@@ -221,10 +236,11 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 { 
 	struct my_usb_storage *dev = shost_priv(host); 
 	//unsigned char *cdb  = scmd->cmnd ; 
-        	
+        struct scsi_device  *sdev = scmd->device ; 
+	sdev->eh_timeout = 10 *HZ ; 	
 	int direction  = scmd->sc_data_direction;
 	unsigned int bufflen  = scsi_bufflen(scmd); 
-
+	
 	/* Setting value to custom struct my_usb_storage */ 
 	dev->bufferlength = bufflen ;
         dev->direction = direction ; 
@@ -234,7 +250,7 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 	{
 		pr_info(" buffer length is %d\n", bufflen);
 	         pr_info(" databuffer alocated \n"); 	
-	 	 dev->data_buffer = usb_alloc_coherent(dev->udev,  bufflen  , GFP_KERNEL, &dev->data_dma);
+	 	 dev->data_buffer = usb_alloc_coherent(dev->udev,   bufflen   , GFP_KERNEL, &dev->data_dma);
 		// dev->data_buffer = kmalloc(bufflen , GFP_KERNEL) ; 
 		 if(dev->data_buffer ==NULL ) 
 		 { 
@@ -302,7 +318,10 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 static void  cbw_callback( struct urb *urb ) 
 {
 	struct my_usb_storage  *dev  = urb->context ; 
-        dev_info(&dev->intf->dev, " Reached cbw_callback() \n"); 	
+	struct scsi_data_buffer *sdb = &dev->active_scmd->sdb ;
+        unsigned char *buf  = sg_virt(sdb->table.sgl); 
+	unsigned int len = min(sdb->length , 36); 	
+	dev_info(&dev->intf->dev, " Reached cbw_callback() \n"); 	
 	struct command_block_wrapper  *cbw = (struct command_block_wrapper *) urb->transfer_buffer; 
 	if( urb->status  < 0 ) 
 	{
@@ -320,7 +339,21 @@ static void  cbw_callback( struct urb *urb )
 		return ; 
 	} 
  
-		
+	/* faling inquiey response */ 
+	static const unsigned char fake_inquiry_response[36] = { 
+	0x00,
+	0x80,
+	0x05,
+	0x02,
+	0x1F,
+	0x00,0x00,0x00,	
+	'M','E','O','W','-','D','E','V',
+	'V','I','R','T','Y','A','L',' ',' ',' ',' ',' ',' ',' ',' ',' ',
+	'0','0','0','1',
+	}; 
+
+	memcpy(buf, fake_inquiry_response, len ); 
+
 
 	if(!dev) 
 	{ 
@@ -346,9 +379,9 @@ static void  cbw_callback( struct urb *urb )
 		{
 		       pr_info(" DMA_FROM_DEVICE"); 
 
-usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) ,dev->data_buffer , dev->bufferlength , data_callback, dev ) ; 
+//usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , buf , len , data_callback, dev ) ; 
 			
-		  	dev->data_urb->transfer_dma = dev->data_dma ; 
+		  	//dev->data_urb->transfer_dma = dev->data_dma ; 
 			dev->data_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
 
 			pr_info(" UNTILL  data_urb \n");
@@ -359,9 +392,12 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->b
 				dev->active_scmd->result = ( DID_ERROR << 16 ) ; 
 				scsi_done(dev->active_scmd) ; 
 				return ; 
-			} 
+			}
+		        dev->active_scmd->result = SAM_STAT_GOOD; 
+				
 
-			pr_info(" FINISHED DATA_URB \n");
+			pr_info(" FINISHED DATA_URB \n"); 
+			return ;
 		} 
 
 		if(dev->direction == DMA_TO_DEVICE) 
@@ -377,7 +413,7 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->b
 			int retvalue = usb_submit_urb(dev->data_urb , GFP_ATOMIC); 
 			if( retvalue) 
 			{ 
-			        dev_err(&dev->intf->dev , "data_urb: usb_submit_urb() error:%d \n", retvalue ); 	
+			       dev_err(&dev->intf->dev , "data_urb: usb_submit_urb() error:%d \n", retvalue ); 	
 				dev->active_scmd->result = ( DID_ERROR << 16 ) ; 
 			 	scsi_done(dev->active_scmd) ; 
 				return ; 
@@ -420,7 +456,7 @@ static void data_callback(  struct urb *urb )
 	if( urb->status < 0 ) 
 	{ 
                 dev_err(&dev->intf->dev, "Bad data_urb submission %d\n", urb->status );  
-		dev->active_scmd->result = (DID_ERROR >> 16 ) ; 
+		dev->active_scmd->result = (DID_ABORT << 16 ) ; 
 		scsi_done(dev->active_scmd); 
 	}
         pr_info(" actual_length is data_callback is %d\n",urb->actual_length); 
@@ -518,10 +554,10 @@ static void csw_callback(  struct urb *urb )
 }
 
 
-int  usb_eh_abort( struct scsi_cmnd *cmd) 
+int  usb_eh_abort( struct scsi_cmnd *scmd) 
 { 
 	pr_info("  usb_eh_abort () \n");
-        struct Scsi_Host *host = cmd->device->host ; 	
+        struct Scsi_Host *host = scmd->device->host ; 	
 	struct my_usb_storage *dev = shost_priv(host); 
 	
 	int ret ; 
@@ -536,43 +572,112 @@ int  usb_eh_abort( struct scsi_cmnd *cmd)
 	{ 
 		dev_err(&dev->intf->dev ,"eh_abort : failed to clear bulk in  :%d\n", ret); 
 	} 
-	 
-	if( dev->cbw_urb) 
+	   
+	if(dev->cbw_urb) 
 	{ 
 		usb_kill_urb(dev->cbw_urb); 
 	} 
-	if( dev->csw_urb) 
+
+	if(dev->csw_urb) 
 	{ 
-		usb_kill_urb(dev->csw_urb) ; 
+		usb_kill_urb(dev->csw_urb); 
 	} 
+
 	if(dev->data_urb) 
 	{ 
 		usb_kill_urb(dev->data_urb); 
 	} 
 
-	cmd->result = (DID_ABORT <<16) ; 
-	scsi_done(cmd); 
+	scmd->result = (DID_ABORT <<16) ; 
+	scsi_done(scmd); 
 
 	return  SUCCESS ; 
 } 
 
 
-int usb_eh_dev_reset( struct scsi_cmnd *cmd) 
+
+/* usb pre  resetting function */
+int usb_pre_reset( struct usb_interface *iface ) 
 { 
-	pr_info(" usb_eh_dev_reset() \n"); 
-	return  0 ; 
+	pr_info(" USB pre reset \n");
+        struct Scsi_Host *host = usb_get_intfdata(iface); 
+	struct my_usb_storage *dev = shost_priv(host); 
+	mutex_lock(&dev->usb_lock); 	
+ 	return 0; 
 } 
 
-int usb_eh_bus_reset( struct scsi_cmnd *cmd) 
+
+/* Usb post resetting  function */ 
+int usb_post_reset( struct usb_interface *iface) 
 { 
-	pr_info("usb_eh_bus_rest() \n"); 
+	pr_info(" USB post reset \n");
+        struct Scsi_Host *host = usb_get_intfdata(iface); 
+	struct my_usb_storage *dev = shost_priv(host);
+	//scsi_report_bus_reset(host, 0 ) ;
+ 	mutex_unlock(&dev->usb_lock); 	
+		
 	return 0 ; 
 } 
 
-int usb_eh_host_reset( struct scsi_cmnd *cmd) 
+
+/*  SCSI CORE  eh error handlers */ 
+int usb_eh_dev_reset( struct scsi_cmnd *scmd) 
+{ 
+	pr_info(" usb_eh_dev_reset() \n");
+        struct Scsi_Host  *host = scmd->device->host ; 
+	struct my_usb_storage  *dev = shost_priv(host); 
+	
+	int ret ; 
+	ret = usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, 0 ),0xFF, USB_TYPE_CLASS | USB_RECIP_INTERFACE , 0 , dev->intf->cur_altsetting->desc.bInterfaceNumber , NULL , 0, USB_CTRL_SET_TIMEOUT);
+	if(ret < 0 ) 
+	 { 
+	 	dev_err(&dev->intf->dev, "BOBS  device reset failed %d\n", ret); 
+       		return FAILED ; 
+	 } 
+
+	usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev ,dev->bulk_in_endpointaddr));
+	usb_clear_halt(dev->udev, usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr));	
+	
+ 	dev->cbw_tag = 0; 
+	dev->active_scmd = NULL ;
+        	
+	return  SUCCESS  ; 
+} 
+
+int usb_eh_bus_reset( struct scsi_cmnd *scmd) 
+{ 
+	pr_info("usb_eh_bus_rest() \n");
+        struct Scsi_Host  *host = scmd->device->host ; 
+	struct my_usb_storage  *dev = shost_priv(host); 
+	      
+	int ret ; 
+	ret = usb_reset_device(dev->udev); 
+	if(ret) 
+	{
+		dev_err(&dev->intf->dev,"USB reset device failed %d\n", ret); 
+		return FAILED ; 
+	} 
+	usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev ,dev->bulk_in_endpointaddr));
+	usb_clear_halt(dev->udev, usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr));	
+ 	dev->cbw_tag = 0; 
+	dev->active_scmd = NULL ;	
+	return SUCCESS  ; 
+} 
+
+int usb_eh_host_reset( struct scsi_cmnd *scmd) 
 { 
 	pr_info("usb_eh_host_rest() \n"); 
- 	return 0 ; 
+	      
+ 	return  usb_eh_bus_reset(scmd);  
+} 
+
+
+/*slave alloc  */ 
+ 
+static int slave_alloc(struct scsi_device *dev, struct queue_limits *queue) 
+{
+	dev->eh_timeout = 10 *HZ ; 
+	return 0;
 } 
 
 
@@ -758,4 +863,3 @@ module_exit(usb_exit);
 MODULE_LICENSE("GPL"); 
 MODULE_DESCRIPTION(" A simple USB driver "); 
 MODULE_AUTHOR("Johan-liebert") ; 
-

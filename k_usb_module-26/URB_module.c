@@ -335,7 +335,7 @@ void init_usb_protocols( struct work_struct *work)
 	 { 
 		 pr_info("Cbw submission error:[%d] \n", ret) ; 
 	  
-		 goto r_urb ; 
+		  return ; 
 	 } 
 
 
@@ -345,25 +345,25 @@ void init_usb_protocols( struct work_struct *work)
 	return ;
 
 /* Cleanups */
-r_urb :
-	if(dev->cbw_urb) 
-	{ 
-
-	 pr_info("cbw_urb_err : cleaning.... \n");
-
-	 usb_kill_urb(dev->cbw_urb); 
-	 usb_free_urb(dev->cbw_urb); 
-	 kfree(dev->cbw_buffer) ;
-	 dev->cbw_buffer = NULL; 
-	 dev->cbw_urb =NULL; 
-	 return  ; 
-
-	}else{ 
-	       pr_info(" No_cbw_urb_error \n"); 
-	 	return ; 
-
-	} 
-
+//r_urb :
+//	if(dev->cbw_urb) 
+//	{ 
+//
+//	 pr_info("cbw_urb_err : cleaning.... \n");
+//
+//	 usb_kill_urb(dev->cbw_urb); 
+//	 usb_free_urb(dev->cbw_urb); 
+//	 kfree(dev->cbw_buffer) ;
+//	 dev->cbw_buffer = NULL; 
+//	 dev->cbw_urb =NULL; 
+//	 return  ; 
+//
+//	}else{ 
+//	       pr_info(" No_cbw_urb_error \n"); 
+//	 	return ; 
+//
+//	} 
+//
 }
 
 
