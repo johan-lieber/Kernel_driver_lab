@@ -319,10 +319,10 @@ static void  cbw_callback( struct urb *urb )
 { 
 	pr_info(" Inside CBW_CALLBACK \n");
 	struct my_usb_storage  *dev  = urb->context ; 
-	struct scsi_data_buffer *sdb = &dev->active_scmd->sdb ;
-        unsigned char *buf  = sg_virt(sdb->table.sgl); 
-	unsigned int len = min(sdb->length , dev->bufferlength); 	
-	dev_info(&dev->intf->dev, " Reached cbw_callback() \n"); 	
+//	struct scsi_data_buffer *sdb = &dev->active_scmd->sdb ;
+//        unsigned char *buf  = sg_virt(sdb->table.sgl); 
+//	unsigned int len = min(sdb->length , 36); 	
+//	dev_info(&dev->intf->dev, " Reached cbw_callback() \n"); 	
 	struct command_block_wrapper  *cbw = (struct command_block_wrapper *) urb->transfer_buffer; 
 	if( urb->status  < 0 ) 
 	{
@@ -355,62 +355,35 @@ static void  cbw_callback( struct urb *urb )
 	'0','0','0','1',
 	}; 
 
-	static const unsigned char vpd_page_00[4]= 
+	static const unsigned char vpd_page_00[18]= 
 	{ 
 		0x00,
 		0x00,
 		0x00,
 		0x00
-	}; 
-	static const unsigned char no_sense_response[18] = { 
-	0x70,0x00,0x00,0x00,0x00,0x00,0x00,0x0A, 
-	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-	0x00,0x00 
 	};
 
-        /* Checking command*/ 
-	switch(cbw->CBWCB[0])  
-	{ 
-	
-	case 0x12 : /* Inquiry command */ 
-		pr_info("INQURIY \n"); 
+	if(cbw->CBWCB[0] == INQUIRY) 
+	{ 		
+
+		pr_info(" INQUIEY OPCIDE \n"); 
+		struct scsi_data_buffer *sdb = &dev->active_scmd->sdb ;
+      		unsigned char *buf  = sg_virt(sdb->table.sgl); 
+		unsigned int len = min(sdb->length , 36); 	
 		
    		if(cbw->CBWCB[1] && 0x01) 
 		{  
-		        pr_info("INQUIRY EVPD\n");	
-		         memcpy(buf, vpd_page_00, min(len  , sizeof(vpd_page_00))); 
+		        pr_info(" it is vpd_page_00\n");	
+		         memcpy(buf, vpd_page_00, sizeof(vpd_page_00)); 
 		}else { 
 	        	 memcpy(buf, fake_inquiry_response, len ); 
 		}
 		scsi_set_resid(dev->active_scmd, sdb->length - len);
 		dev->active_scmd->result = SAM_STAT_GOOD; 
 		scsi_done(dev->active_scmd); 
-		break ; 
+		return ; 
+	} 
 
-	case 0x00:  /* Test unit ready */ 
-
-		pr_info(" TEST_UNIT_READY \n"); 
-		scsi_set_resid(dev->active_scmd, 0);  /* mo data returned */ 
-		dev->active_scmd->result =  SAM_STAT_GOOD ; 
-		scsi_done(dev->active_scmd); 
-		break; 
-	
-	case 0x03: /* Request sense */ 
-		pr_info("REQUEST_SENCE \n"); 
-		memcpy(buf , no_sense_response , len); 
-		scsi_set_resid(dev->active_scmd, sdb->length - len);
-		dev->active_scmd->result = SAM_STAT_GOOD; 
-		scsi_done(dev->active_scmd); 
-		break ; 
-
-	case 0x25 : /* Read capacity */ 
-		pr_info("READ_CAPACITY\n");   
-		break ; 
-
-	default :
-		 pr_info("CBW command not recognized \n"); 
-		 break ; 
-	}   
 
 	if(!dev) 
 	{ 
@@ -436,7 +409,7 @@ static void  cbw_callback( struct urb *urb )
 		{
 		       pr_info(" DMA_FROM_DEVICE"); 
 
-usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , buf , len , data_callback, dev ) ; 
+//usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , buf , len , data_callback, dev ) ; 
 			
 		  	//dev->data_urb->transfer_dma = dev->data_dma ; 
 			dev->data_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
