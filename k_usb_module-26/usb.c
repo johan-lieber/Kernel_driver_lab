@@ -62,9 +62,14 @@ struct my_usb_storage {
         dma_addr_t cbw_dma ; 
 	dma_addr_t csw_dma ; 
 	dma_addr_t data_dma ; 
+	dma_addr_t sec_dma ;
+        unsigned int count ; 	
 	/* CBW */ 
-	struct urb *cbw_urb; 
+	struct urb *cbw_urb; 	
 	unsigned char *cbw_buffer ; 
+	/* second cbw */ 
+	struct urb *sec_urb ; 
+	unsigned char *sec_buffer ;
 	/* CSW  */ 
 	struct urb *csw_urb ; 
 	unsigned char *csw_buffer ; 
@@ -234,7 +239,7 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
         struct scsi_device  *sdev = scmd->device ; 
 	sdev->eh_timeout = 10 *HZ ; 	
 	int direction  = scmd->sc_data_direction;
-	unsigned int bufflen  = scsi_bufflen(scmd); 
+	unsigned int bufflen  = scsi_bufflen(scmd);
 	/* Calling allocation function */ 
 	if(allocate_usb_resource(dev)) 
 	{
@@ -275,7 +280,7 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 
 	
 	memcpy( dev->cbw.CBWCB ,  scmd->cmnd , dev->cbw.bCBWCBLength);
-        memcpy( dev->cbw_buffer , &dev->cbw , CBW_LEN); 	
+        memcpy(  dev->cbw_buffer  ,dev->cbw_urb, CBW_LEN); 	
 
 	pr_info(" CBW-----------------------------\n"); 
 	pr_info("dCBWSignature		:0x%08x\n", le32_to_cpu(dev->cbw.dCBWSignature)); 
@@ -293,11 +298,11 @@ static int queue_command ( struct Scsi_Host *host , struct scsi_cmnd *scmd )
 
 
 
-	usb_fill_bulk_urb(dev->cbw_urb , dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr), dev->cbw_buffer, CBW_LEN  , cbw_callback, dev) ;
+	usb_fill_bulk_urb(dev->cbw_urb, dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr), dev->cbw_buffer , CBW_LEN  , cbw_callback, dev) ;
 
 	/* Submitting  DMA  buffer */	
   	dev->cbw_urb->transfer_dma = dev->cbw_dma ; 
-	dev->cbw_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
+	//dev->cbw_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
 
  	int cbw_urb_rtv = usb_submit_urb(dev->cbw_urb , GFP_KERNEL); 
 	if( cbw_urb_rtv) 
@@ -436,7 +441,7 @@ static void  cbw_callback( struct urb *urb )
 		{
 		       pr_info(" DMA_FROM_DEVICE"); 
 
-usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , buf , len , data_callback, dev ) ; 
+//usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , buf , len , data_callback, dev ) ; 
 			
 		  	//dev->data_urb->transfer_dma = dev->data_dma ; 
 			dev->data_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
@@ -454,6 +459,7 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->b
 				
 
 			pr_info(" FINISHED DATA_URB \n"); 
+			dev->count++;  
 			return ;
 		} 
 
@@ -788,6 +794,19 @@ int allocate_usb_resource( struct my_usb_storage *dev)
 		 pr_info(" cbw_buffer usb_alloc_coherent() errror \n"); 
 		 goto r_cbw ; 
 	 } 
+	 /*Allocating sec cbw*/
+	 dev->sec_urb = usb_alloc_urb( 0 , GFP_KERNEL) ; 
+	 if(dev->sec_urb ==NULL) 
+	 { 
+		 pr_info(" sec_urb alloc error \n "); 
+		 return -ENOMEM ; 
+	 }
+	 dev->sec_buffer = usb_alloc_coherent(dev->udev, CBW_LEN , GFP_KERNEL, &dev->sec_dma); 
+	 if( !dev->sec_buffer) 
+	 { 
+		 pr_info(" sec_buffer usb_alloc_coherent() errror \n"); 
+		 goto r_sec ; 
+	 } 
 	 /*Allocating CSW */ 
 	 dev->csw_urb = usb_alloc_urb(0, GFP_KERNEL) ; 
 	 if( dev->csw_urb ==NULL) 
@@ -829,6 +848,24 @@ r_cbw:
 		 } 
 	  return -1 ; 
 	 } 
+
+r_sec: 
+	if( dev->sec_urb || dev->sec_buffer) 
+	 {
+		 if( dev->sec_urb) 
+		 { 
+			 usb_kill_urb(dev->sec_urb); 
+			 usb_free_urb(dev->sec_urb); 
+			 dev->sec_urb= NULL ; 	
+		 } 
+		 if( dev->sec_buffer) 
+		 { 
+			 usb_free_coherent(dev->udev, CBW_LEN , dev->sec_buffer , dev->sec_dma); 
+			 dev->sec_buffer = NULL ; 
+		 } 
+	  return -1 ; 
+	 } 
+
 
 r_csw: 
 
