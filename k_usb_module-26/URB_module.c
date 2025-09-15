@@ -21,6 +21,8 @@
 #define CBW_LEN  31
 #define CSW_LEN 13 
 #define CBW_SIG 0x43425355 
+#define  READ_LEN  8  
+#define  REQ_LEN  18 
 
 /* Scsi command macros */ 
 #define SCSI_TEST_UNIT_READY(cbw)   do{ \
@@ -58,7 +60,7 @@
         (cbw).CBWCB[1] = 0x00 ; \
         (cbw).CBWCB[2] = 0x00 ; \
         (cbw).CBWCB[3] = 0x00 ; \
-	(cbw).CBWCB[4] =(alloc_len); \
+	(cbw).CBWCB[4] = (uint8_t)(alloc_len & 0xFF); \
         (cbw).CBWCB[5] = 0x00 ; \
 }while(0) 
 
@@ -82,12 +84,12 @@
 	(cbw).bCBWLUN = 0 ;\
 	(cbw).bCBWCBLength = 10  ; \
         (cbw).CBWCB[0] = 0x28 ; \
-   	(cbw).CBWCB[1] = ((lba) >> 24 ) & 0xFF ; \
-   	(cbw).CBWCB[2] = ((lba) >> 16 ) & 0xFF ; \
-	(cbw).CBWCB[3] = ((lba) >> 8  ) & 0xFF ; \
-	(cbw).CBWCB[4] =  (lba)  & 0xFF ; \
-	(cbw).CBWCB[5] = ((num_blocks)  >> 8 ) & 0xFF ; \
-	(cbw).CBWCB[6] = (num_blocks)  & 0xFF ; \
+   	(cbw).CBWCB[1] = (uint8_t)((lba >>24) & 0xFF); \
+   	(cbw).CBWCB[2] = (uint8_t)((lba >>16) & 0xFF); \
+	(cbw).CBWCB[3] = (uint8_t)((lba >>8) & 0xFF) ; \
+	(cbw).CBWCB[4] = (uint8_t)(lba & 0xFF );\
+	(cbw).CBWCB[5] = (uint8_t)((num_blocks >>8) & 0xFF); \
+	(cbw).CBWCB[6] = (uint8_t)(num_blocks & 0xFF);\
 } while(0) 
 
 #define SCSIWRITE_10(cbw , lba , num_blocks, block_size) do {  \
@@ -151,7 +153,7 @@ struct  my_usb_storage {
 	 __u8  bulk_out_endpointaddr  ; 
 	 __le32  cbw_tag; 
 	 /* CBW */ 
-
+	dma_addr_t cbw_dma ; 
 	struct urb  *cbw_urb ; 
 	unsigned  char *cbw_buffer; 
 	/* WRITE */ 
@@ -167,9 +169,9 @@ struct  my_usb_storage {
 
 	struct urb  *read_urb ;  
 	unsigned char *read_buf; 
-
+	dma_addr_t read_dma ; 
 	/* INQUIRY */ 
-	
+   	dma_addr_t inquiry_dma;	
 	struct urb *inquiry_urb ; 
 	unsigned char *inquiry_buffer ;  
 
@@ -308,26 +310,17 @@ void init_usb_protocols( struct work_struct *work)
 	memset(dev->cbw_buffer , 0 , CBW_LEN);
 
 	memset(&dev->my_cbw ,0 , sizeof(CBW_LEN)); 
-
-	dev->my_cbw.dCBWSignature = cpu_to_le32(CBW_SIG) ;
-	dev->my_cbw.dCBWTag = cpu_to_le32(0x12345678) ; 
-	dev->my_cbw.dCBWDataTransferLength = cpu_to_le32(36);
-	dev->my_cbw.bmCBWFlags = 0x80; 
-	dev->my_cbw.bCBWLUN = 0 ;
-	dev->my_cbw.bCBWCBLength = 6 ; 
-        dev->my_cbw.CBWCB[0] = 0x12 ; 
-        dev->my_cbw.CBWCB[1] = 0x00 ; 
-        dev->my_cbw.CBWCB[2] = 0x00 ; 
-        dev->my_cbw.CBWCB[3] = 0x00 ; 
-        dev->my_cbw.CBWCB[4] = 36 ;
-        dev->my_cbw.CBWCB[5] = 0x00 ;
-/*	SCSI_INQUIRY(dev->my_cbw , 36 ) ; */
-
-
+ // 	SCSI_READ_CAPACITY_10(dev->my_cbw );   //  preparing to send  read capacity 10 command  
+ //	SCSI_TEST_UNIT_READY(dev->my_cbw)  ; 
+//	SCSI_INQUIRY(dev->my_cbw , 36 ) ;
+	SCSI_REQUEST_SENSE( dev->my_cbw , 18 ); 
 	memcpy(dev->cbw_buffer ,&dev->my_cbw, CBW_LEN); 	
 
 	usb_fill_bulk_urb(dev->cbw_urb, dev->udev , usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr), dev->cbw_buffer , CBW_LEN , cbw_callback , dev ) ; 
 
+
+	 dev->cbw_urb->transfer_dma = dev->cbw_dma ; 
+	 dev->cbw_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
 
 	 int ret = usb_submit_urb(dev->cbw_urb , GFP_KERNEL); 
  
@@ -375,9 +368,8 @@ static   void cbw_callback ( struct urb *urb )
 
 	struct my_usb_storage *dev  =  urb->context ;
         	       
-	pr_info(" bulk_in_endpointaddr :[0x%02x]\n", dev->bulk_in_endpointaddr) ; 
 
-	if(urb->status)
+	if(urb->status < 0 ) 
 	{
 
 		if( urb->status == -EPIPE ) 
@@ -397,7 +389,8 @@ static   void cbw_callback ( struct urb *urb )
 		urb->status == -ENOENT ? " Urb  killed befroe submissio " : "Unkown err" ); 
 		return ; 
 	}  
-	
+
+ 	pr_info(" cbw_urb actual_length:%d \n", urb->actual_length); 	
 
  	 struct command_block_wrapper *cbw  =  (struct  command_block_wrapper *)  urb->transfer_buffer; 
 
@@ -466,9 +459,21 @@ static   void cbw_callback ( struct urb *urb )
 
 
 		// SCSI  TEST UNIT COMMAND // 
-		case 0x1A : 
-			pr_info(" SCSI MODE SENSE COMMAND RECIEVED \n"); 
-			break ;
+		case 0x00: 
+			pr_info(" SCSI MODE SENSE COMMAND RECIEVED \n");
+
+usb_fill_bulk_urb(dev->csw_urb,dev->udev,usb_rcvbulkpipe(dev->udev  , dev->bulk_in_endpointaddr), dev->csw_buffer, CSW_LEN , csw_callback, dev) ; 
+	 
+
+	int test_rtv = usb_submit_urb(dev->csw_urb, GFP_ATOMIC); 
+
+	if(test_rtv) 
+	{ 
+		pr_info("Csw_urb_alloc error\n"); 
+		return  ; 
+	} 
+       
+		break ;
 
 
 		// SCSI  INQUIRY COMMAND // 	
@@ -493,7 +498,56 @@ usb_fill_bulk_urb(dev->inquiry_urb , dev->udev , usb_rcvbulkpipe(dev->udev, dev-
 			pr_info("Inquiry response recieved [ ok ]\n");
 
 			break ; 
+		case 0x03 : 
+		pr_info(" it  is request sense \n"); 
+		
+usb_fill_bulk_urb(dev->inquiry_urb , dev->udev , usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr), dev->inquiry_buffer , 18 , data_callback,dev) ; 
 
+
+			
+			dev->inquiry_urb->transfer_dma = dev->inquiry_dma ; 
+			dev->inquiry_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
+
+
+			int urb_inquiry_result1 = usb_submit_urb(dev->inquiry_urb , GFP_ATOMIC) ; 
+			if( urb_inquiry_result1) 
+			{ 
+				pr_info("Inquiry_urb_alloc error\n"); 
+				usb_kill_urb(dev->inquiry_urb); 
+				usb_free_urb(dev->inquiry_urb); 
+				kfree(dev->inquiry_buffer) ;
+				dev->inquiry_buffer = NULL ;
+			        dev->inquiry_urb = NULL; 
+
+				return ; 
+			} 
+		        	
+
+		break ;	
+
+ 		case 0x25   :
+			pr_info("SCSI  READ CAPACITY  \n") ;
+
+
+			usb_fill_bulk_urb(dev->read_urb ,dev->udev, usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr), dev->read_buf ,  READ_LEN    ,  data_callback,dev) ; 
+
+			dev->read_urb->transfer_dma = dev->read_dma ; 
+			dev->read_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
+
+
+			int  read_rtv  = usb_submit_urb(dev->read_urb , GFP_ATOMIC) ; 
+			if(read_rtv) 
+
+			{ 
+
+				pr_info(" READ_URB_SUB_ERR\n"); 
+				goto r_urb ; 
+			} 
+
+
+			pr_info("  read capacity send buddy  \n"); 
+
+			break ; 
 
 		default :
 			pr_warn(" SCSI UNKNOWN COMMAND :0x%02x\n", cbw->CBWCB[0]); 
@@ -521,14 +575,14 @@ return ;
 static   void data_callback  ( struct urb *urb )
 { 
 
- 	if(urb->status == -EPIPE) 
+	struct my_usb_storage *dev = urb->context ;  
+ 	if(urb->status< 0) 
   	{ 
 		pr_info("endpoint stalled \n"); 
 		return ; 
 	 } 	
 	
 	pr_info("  -DATA CALLBACK FN -\n");
-	struct my_usb_storage *dev = urb->context ;  
 
       // unsigned char *buffer = urb->transfer_buffer; 
 //
@@ -658,7 +712,7 @@ int usb_alloc_buffer_and_urb( struct my_usb_storage *dev)
 
 		
 	/* For CBW  scsi command */
-       	dev->cbw_buffer = kmalloc( 31 , GFP_KERNEL) ; 
+       	dev->cbw_buffer =usb_alloc_coherent( dev->udev , CBW_LEN , GFP_KERNEL , &dev->cbw_dma) ;  
 	if( dev->cbw_buffer ==NULL) 
 	{ 
 		pr_err(" cbw_buffer_alloc_err\n"); 
@@ -692,10 +746,10 @@ int usb_alloc_buffer_and_urb( struct my_usb_storage *dev)
 
 
 	/* For Read  scsi command */
-	dev->read_buf = kmalloc(36 , GFP_KERNEL) ; 
+	dev->read_buf = usb_alloc_coherent(dev->udev , READ_LEN , GFP_KERNEL , &dev->read_dma) ; 
  	if( dev->read_buf == NULL  ) 
  	{ 
-		 pr_info(" read_buffer_alloc_err\n"); 
+		 pr_info(" read_buf_alloc_err\n"); 
 		 return - ENOMEM ;  
 	} 
 
@@ -710,6 +764,7 @@ int usb_alloc_buffer_and_urb( struct my_usb_storage *dev)
 
 	/* For Inquriry scsi command */
 	dev->inquiry_buffer = kmalloc(36 , GFP_KERNEL) ; 
+	dev->inquiry_buffer = usb_alloc_coherent(dev->udev , REQ_LEN , GFP_KERNEL , &dev->inquiry_dma) ; 
  	if( dev->inquiry_buffer == NULL  ) 
  	{ 
 		 pr_info(" inquiry_buffer_alloc_err\n"); 
@@ -768,9 +823,9 @@ r_cbw:
 	 		dev->cbw_urb = NULL ;
 		} 
 		if( dev->cbw_buffer) 
-		{ 
+		{
+		        usb_free_coherent(dev->udev , CBW_LEN , dev->cbw_buffer , dev->cbw_dma); 	
 
-			kfree(dev->cbw_buffer) ;
 	 		dev->cbw_buffer = NULL; 
 		} 
 
@@ -812,7 +867,7 @@ r_inquiry:
 		 }
 		if(dev->inquiry_buffer) 
 		{
-			kfree(dev->inquiry_buffer) ; 
+		        usb_free_coherent(dev->udev , REQ_LEN , dev->inquiry_buffer , dev->inquiry_dma); 	
 	 		dev->inquiry_buffer = NULL;
 
 		}
@@ -834,7 +889,7 @@ r_read :
 		 }
 		if(dev->read_buf) 
 		{
-			kfree(dev->read_buf) ; 
+			 usb_free_coherent(dev->udev , READ_LEN , dev->read_buf , dev->read_dma )  ; 
 	 		dev->read_buf = NULL;
 
 		}
@@ -890,8 +945,7 @@ int usb_clear_buffer_and_urb( struct my_usb_storage *dev)
 			} 
 			if( dev->cbw_buffer) 
 			{ 
-
-				kfree(dev->cbw_buffer) ;
+				usb_free_coherent(dev->udev , CBW_LEN , dev->cbw_buffer , dev->cbw_dma ); 
 	 			dev->cbw_buffer = NULL; 
 			} 
 
@@ -933,7 +987,7 @@ int usb_clear_buffer_and_urb( struct my_usb_storage *dev)
 			}
 		 } 
 
-		 /* Clearing read_urb and read_buffer */ 
+		 /* Clearing read_urb and read_buf */ 
 		 if(dev->read_urb || dev->read_buf) 
 		 { 
 			 if( dev->read_urb) 
@@ -944,8 +998,8 @@ int usb_clear_buffer_and_urb( struct my_usb_storage *dev)
 	 			dev->read_urb = NULL ;
 			 }
 			if(dev->read_buf) 
-				{
-				kfree(dev->read_buf) ; 
+			{
+				usb_free_coherent(dev->udev , READ_LEN , dev->read_buf , dev->read_dma);
 	 			dev->read_buf = NULL;
 
 			}

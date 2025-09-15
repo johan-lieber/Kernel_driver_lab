@@ -361,51 +361,6 @@ if (dev->bufferlength )
 
 
 
-/* sec workqueue fucntion  for freeing   previous in flight urbs */ 
-//void  sec_workfunction( struct work_struct *work)
-//{ 
-//
-//	struct my_usb_storage *dev ; 
-//	dev = container_of(work, struct my_usb_storage , my_work); 
-//	dev_info(&dev->intf->dev,"In flight urb killed \n");
-//        if(dev->cbw_urb || dev->cbw_buffer) 
-//	{ 
-//		if(dev->cbw_urb) 
-//		{ 
-//		 	usb_kill_urb(dev->cbw_urb); 
-//			usb_free_urb(dev->cbw_urb); 
-//			dev->cbw_urb = NULL ; 
-//		} 
-//		if(dev->cbw_buffer) 
-//		{ 
-//			kfree(dev->cbw_buffer); 
-//			dev->cbw_buffer =NULL;
-//		} 
-//	}
-// 
-//       	 /* Allocating CBW */ 
-//	if(!dev->cbw_urb) 
-//	{
-//         dev->cbw_urb = usb_alloc_urb( 0 , GFP_KERNEL) ; 
-//	 if(dev->cbw_urb ==NULL) 
-//	 { 
-//		 pr_info(" cbw_urb alloc error \n "); 
-//		 return ;
-//	 }
-//	}
-//	if(!dev->cbw_buffer) 
-//	{ 
-//	 dev->cbw_buffer = usb_alloc_coherent(dev->udev, CBW_LEN , GFP_KERNEL, &dev->cbw_dma); 
-//	 if( !dev->cbw_buffer) 
-//	 { 
-//		 pr_info(" cbw_buffer usb_alloc_coherent() errror \n"); 
-//		 return  ; 
-//	 }  
-//	} 
-//	return ;
-//
-//} 
-//
 /*  cbw_callback function */ 
 static void  cbw_callback( struct urb *urb ) 
 { 
@@ -473,8 +428,15 @@ static void  cbw_callback( struct urb *urb )
 	        	 memcpy(buf, fake_inquiry_response, len ); 
 		}
 		scsi_set_resid(dev->active_scmd, sdb->length - len);
-		dev->active_scmd->result = SAM_STAT_GOOD; 
-		scsi_done(dev->active_scmd); 
+		dev->active_scmd->result = SAM_STAT_GOOD;
+
+	        dev->data_urb->actual_length = len; 
+       		dev->data_urb->status = 0 ;
+	        dev->data_urb->context = dev ; 	
+		data_callback(dev->data_urb); 		
+	 	pr_info(" data_urb send -------> \n");
+		return ; 	
+
 		break ; 
 
 	case 0x00:  /* Test unit ready */ 
@@ -532,15 +494,15 @@ usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->b
 			dev->data_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
 
 			pr_info(" UNTILL  data_urb \n");
-			int  ret = usb_submit_urb(dev->data_urb , GFP_ATOMIC);
-			if(ret ) 
-			{
-			        dev_err(&dev->intf->dev , " data_urb usb_submit_urb() error %d \n", ret ); 	
-				dev->active_scmd->result = ( DID_ERROR << 16 ) ; 
-				scsi_done(dev->active_scmd) ; 
-				return ; 
-			}
-		        dev->active_scmd->result = SAM_STAT_GOOD; 
+//			int  ret = usb_submit_urb(dev->data_urb , GFP_ATOMIC);
+//			if(ret ) 
+//			{
+//			        dev_err(&dev->intf->dev , " data_urb usb_submit_urb() error %d \n", ret ); 	
+//				dev->active_scmd->result = ( DID_ERROR << 16 ) ; 
+//				scsi_done(dev->active_scmd) ; 
+//				return ; 
+//			}
+//		        dev->active_scmd->result = SAM_STAT_GOOD; 
 				
 
 			dev->count = 1 ; 
@@ -640,7 +602,9 @@ static void data_callback(  struct urb *urb )
 	        scsi_done(dev->active_scmd); 	
 		return ; 
 	} 		
-	
+	dev->active_scmd->result = SAM_STAT_GOOD ; 
+	scsi_done(dev->active_scmd); 
+	pr_info("recieving csw .......\n"); 	
 	return ; 
 
 
