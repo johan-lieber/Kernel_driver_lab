@@ -312,8 +312,8 @@ void init_usb_protocols( struct work_struct *work)
 	memset(&dev->my_cbw ,0 , sizeof(dev->my_cbw)); 
  // 	SCSI_READ_CAPACITY_10(dev->my_cbw );   //  preparing to send  read capacity 10 command  
  //	SCSI_TEST_UNIT_READY(dev->my_cbw)  ; 
-//	SCSI_INQUIRY(dev->my_cbw , 36 ) ;
-	SCSI_REQUEST_SENSE( dev->my_cbw , 18 ); 
+	SCSI_INQUIRY(dev->my_cbw , 36 ) ;
+//	SCSI_REQUEST_SENSE( dev->my_cbw , 18 ); 
 	memcpy(dev->cbw_buffer ,&dev->my_cbw, CBW_LEN); 	
 
 	usb_fill_bulk_urb(dev->cbw_urb, dev->udev , usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointaddr), dev->cbw_buffer , CBW_LEN , cbw_callback , dev ) ; 
@@ -375,8 +375,8 @@ static   void cbw_callback ( struct urb *urb )
 		if( urb->status == -EPIPE ) 
 		{ 
 
-			usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr));
-			usb_clear_halt(dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr)); 
+			//usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointaddr));
+			//usb_clear_halt(dev->udev , usb_sndbulkpipe(dev->udev , dev->bulk_out_endpointaddr)); 
 	
 			pr_info(" ENDPOINT STALLED \n"); 
 

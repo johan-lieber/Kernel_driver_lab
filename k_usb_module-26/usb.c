@@ -505,11 +505,11 @@ case 0x12 : /* Inquiry command */
 		 * to manully trigger  csw tranaction for complete 
 		 * bot protocol */ 
 
+	 	pr_info("Calling data_callback manually \n");
 	        dev->data_urb->actual_length = len; 
        		dev->data_urb->status = 0 ;
 	        dev->data_urb->context = dev ; 	
 		data_callback(dev->data_urb); 		
-	 	pr_info("Calling data_callback manually \n");
 		return ; 	
 		break ; 
 
@@ -553,7 +553,7 @@ case 0x25 : /* Read capacity */
 		{
 		        dev_info(&dev->intf->dev , "Direction <- DMA_FROM_DEVICE\n"); 
 
-			usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , buf , len , data_callback, dev ) ; 
+//			usb_fill_bulk_urb(dev->data_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , buf , len , data_callback, dev ) ; 
 			
 		  	dev->data_urb->transfer_dma = dev->data_dma ; 
 			dev->data_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP ; 
@@ -675,13 +675,17 @@ static void data_callback(  struct urb *urb )
 	csw.dCSWTag = cpu_to_le32(dev->cbw_tag) ;
 	csw.dCSWDataResidue = cpu_to_le32(0); 
 	csw.bCSWStatus = 0x00; 
-	memcpy(buf, &csw , sizeof(csw)); 
+	memcpy(dev->csw_buffer, &csw , sizeof(csw)); 
 	dev->active_scmd->result =  (  DID_OK  << 16 ) |  SAM_STAT_GOOD; 
-	scsi_done(scmd); 
-	dev->active_scmd = NULL; 
-        pr_info(" donw donw ===============\n"); 	
-     return ; 		
-       	/* csw submission  */ 
+	dev->csw_urb->actual_length = CSW_LEN; 
+       	dev->csw_urb->status = 0 ;
+	dev->csw_urb->context = dev ; 
+	csw_callback(dev->csw_urb); 
+	pr_info(" donw donw ===============\n"); 	
+     	
+	return ; 		
+       	
+	/* csw submission  */ 
 	usb_fill_bulk_urb(dev->csw_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , dev->csw_buffer ,  CSW_LEN , csw_callback, dev ) ;   
 	
   	dev->csw_urb->transfer_dma = dev->csw_dma ; 
@@ -733,23 +737,6 @@ static void csw_callback(  struct urb *urb )
 		scsi_done(dev->active_scmd); 	
 		return ; 
 	}
-
-	switch( csw->dCSWSignature) 
-	{ 
-		case 0:
-			dev->active_scmd = ( DID_OK <<16 ) | SAM_STAT_GOOD; 
-			 break ; 
-		case 1:
-			 dev->active_scmd->result = ( DID_ERROR << 16 ) | SAM_STAT_CHECK_CONDITION ; 
-			 break ; 
-		case 2 :
-			 dev->active_scmd->result = ( DID_ERROR << 16 ) | SAM_STAT_CHECK_CONDITION; 
-			 break; 
-		default:
-			 dev->active_scmd->result = ( DID_ERROR << 16); 
-			 break ; 
-	} 
-
 				
 
 
