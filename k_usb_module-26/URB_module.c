@@ -309,7 +309,7 @@ void init_usb_protocols( struct work_struct *work)
 
 	memset(dev->cbw_buffer , 0 , CBW_LEN);
 
-	memset(&dev->my_cbw ,0 , sizeof(CBW_LEN)); 
+	memset(&dev->my_cbw ,0 , sizeof(dev->my_cbw)); 
  // 	SCSI_READ_CAPACITY_10(dev->my_cbw );   //  preparing to send  read capacity 10 command  
  //	SCSI_TEST_UNIT_READY(dev->my_cbw)  ; 
 //	SCSI_INQUIRY(dev->my_cbw , 36 ) ;
