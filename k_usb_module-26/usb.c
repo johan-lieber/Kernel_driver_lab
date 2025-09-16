@@ -629,6 +629,11 @@ static void data_callback(  struct urb *urb )
 { 	
 	struct my_usb_storage  *dev  = urb->context ;
         struct scsi_cmnd *scmd  = dev->active_scmd ;  	
+	struct scsi_data_buffer *sdb = &dev->active_scmd->sdb ;
+        unsigned char *buf  = sg_virt(sdb->table.sgl); 
+	unsigned int len = min(sdb->length , dev->bufferlength); 	
+
+	pr_info(" len in data_callback is :%d\n",len); 
 
 	if(!dev) 
 	{ 
@@ -664,6 +669,18 @@ static void data_callback(  struct urb *urb )
 	} 	
 
 
+	dev_info(&dev->intf->dev," faking csw :( \n"); 
+ 	struct command_status_wrapper csw ; 
+	csw.dCSWSignature = cpu_to_le32(CSW_SIG);
+	csw.dCSWTag = cpu_to_le32(dev->cbw_tag) ;
+	csw.dCSWDataResidue = cpu_to_le32(0); 
+	csw.bCSWStatus = 0x00; 
+	memcpy(buf, &csw , sizeof(csw)); 
+	dev->active_scmd->result =  (  DID_OK  << 16 ) |  SAM_STAT_GOOD; 
+	scsi_done(scmd); 
+	dev->active_scmd = NULL; 
+        pr_info(" donw donw ===============\n"); 	
+     return ; 		
        	/* csw submission  */ 
 	usb_fill_bulk_urb(dev->csw_urb , dev->udev , usb_rcvbulkpipe(dev->udev , dev->bulk_in_endpointaddr) , dev->csw_buffer ,  CSW_LEN , csw_callback, dev ) ;   
 	
