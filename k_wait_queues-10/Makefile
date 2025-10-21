@@ -1,4 +1,4 @@
-obj-m +=wait_queue_module.o
+obj-m +=waitqueue.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD  := $(shell pwd) 

@@ -1,4 +1,4 @@
-obj-m +=hello.o
+obj-m +=hell2.o
 
 KDIR := /lib/modules/$(shell uname -r)/build 
 PWD  := $(shell pwd) 

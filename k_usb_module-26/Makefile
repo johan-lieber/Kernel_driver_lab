@@ -1,4 +1,4 @@
-obj-m=URB_module.o 
+obj-m=usbv2.o 
 
 KDIR :=/lib/modules/$(shell uname -r )/build 
 PWD  :=$(shell   pwd )  
