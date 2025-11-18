@@ -63,7 +63,7 @@ int  kthread_function (  void *data)
 		pr_info("  FIST_THREAD --> read_count:%u \n", read_count) ;
 	//	mutex_unlock(&examp_mutex); 
 
-		msleep(1); 
+		msleep(1000); 
 	
 	}
 	return 0 ; 
@@ -78,7 +78,7 @@ int kthread_function1 (void *data )
 		read_count ++ ; 
 		pr_info(" SECOND_THRAD --> read_count:%u \n",read_count) ; 
 	 //	mutex_unlock(&examp_mutex); 
-	  	msleep(1); 
+	  	msleep(1000); 
 	} 
 	return 0 ; 
 } 
