@@ -1,26 +1,62 @@
-#include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
+#include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/cdev.h> 
+#include <linux/uaccess.h>
+#include <linux/gpio.h>
+#define GPIO_21 (21)
 
 dev_t dev;
 static struct class *dev_class;
 static struct device *dev_device;
 static struct cdev   cdev_tmp;
+static struct gpio_desc *led_desc; 
+
+static ssize_t g_write(struct file *filp, const char __user *buf, size_t len, loff_t *offset)
+{
+ 	int value;
+	
+	if( len  >= 2)
+		len = 2 ;
+		
+	if (copy_from_user(&value, buf, sizeof(len))) {
+		pr_info("copy_from_user() failed\n");
+	
+	if (value == 1) {
+		gpiod_set_value(led_desc, 1);
+		pr_info("GPIO led on \n");
+		value = 0;
+	} else {
+		gpiod_set_value(led_desc, 0);
+		pr_info("GPIO led off \n");
+	}
+	len = value;
+	return len;
+}
+
+static ssize_t g_read(struct file *filp, char __user *buf, size_t len, loff_t *offset)
+{
+	uint8_t value = gpiod_get_value(led_desc);
+	
+	if (copy_to_user(buf, &value , 1)) {
+		pr_info("copy_to_user() failed \n");
+		return -1 ;
+	}
+	pr_info("GPIO_21: %d\n",value);
+	return 1;
+}
+
 
 static struct file_operations fops = {
 	.owner = THIS_MODULE,
 	.open  = NULL,
-	.write = NULL,
-	.read  = NULL,
+	.write = g_write,
+	.read  = g_read,
 	.open  = NULL,
-	.release = NULL
+	.release = NULL,
 };
-
-/* function prototype */
-static int __init gpio_init(void);
-static void __exit gpio_exit(void);
 
 static int __init gpio_init(void)
 {
@@ -50,6 +86,19 @@ static int __init gpio_init(void)
 		goto r_device;
 	}
 
+	/* gpio configurations */
+	led_desc = gpio_to_desc(GPIO_21);
+
+	if (!led_desc) {
+		pr_err("gpio_to_desc() error%d\n",GPIO_21);
+		goto r_device;
+	}
+
+
+	gpiod_direction_output(led_desc, 0);
+	gpiod_export(led_desc, false);
+	gpiod_export_link(NULL, "led", led_desc);
+
  	return 0;
 r_device:
 	device_destroy(dev_class, dev);
@@ -59,13 +108,22 @@ r_cdev:
 	cdev_del(&cdev_tmp);
 r_unreg:
 	unregister_chrdev_region(dev,1);
+	return -1;
 }
 
 static void __exit gpio_exit(void)
 {
+	gpiod_unexport(led_desc);
+	gpiod_put(led_desc);
 	device_destroy(dev_class, dev);
 	class_destroy(dev_class);
 	cdev_del(&cdev_tmp);
 	unregister_chrdev_region(dev, 1);
 	printk(KERN_INFO "driver unloaded successfully\n");
-} 
+}
+
+
+module_init(gpio_init);
+module_exit(gpio_exit);
+MODULE_DESCRIPTION("simple gpio module for led\n");
+MODULE_LICENSE("GPL");
