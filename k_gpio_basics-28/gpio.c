@@ -21,8 +21,9 @@ static ssize_t g_write(struct file *filp, const char __user *buf, size_t len, lo
 	if( len  >= 2)
 		len = 2 ;
 		
-	if (copy_from_user(&value, buf, sizeof(len))) {
+	if (copy_from_user(&value, buf, sizeof(int))) {
 		pr_info("copy_from_user() failed\n");
+	}
 	
 	if (value == 1) {
 		gpiod_set_value(led_desc, 1);
@@ -51,7 +52,6 @@ static ssize_t g_read(struct file *filp, char __user *buf, size_t len, loff_t *o
 
 static struct file_operations fops = {
 	.owner = THIS_MODULE,
-	.open  = NULL,
 	.write = g_write,
 	.read  = g_read,
 	.open  = NULL,
@@ -61,7 +61,7 @@ static struct file_operations fops = {
 static int __init gpio_init(void)
 {
 	int ret;
-	ret = alloc_chrdev_region(&dev, 1, 0, "gpio");
+	ret = alloc_chrdev_region(&dev, 0, 1, "gpio");
 	
 	if (ret < 0) {
 		pr_err("alloca_chrdev_region() error\n");
