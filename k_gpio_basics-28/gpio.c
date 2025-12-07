@@ -13,6 +13,7 @@ static struct class *dev_class;
 static struct device *dev_device;
 static struct cdev   cdev_tmp;
 static struct gpio_desc *led_desc; 
+int gpio_legacy_no = 17;
 
 static ssize_t g_write(struct file *filp, const char __user *buf, size_t len, loff_t *offset)
 {
@@ -87,11 +88,18 @@ static int __init gpio_init(void)
 	}
 
 	/* gpio configurations */
-	led_desc = gpio_to_desc(GPIO_21);
+
+	led_desc = gpio_to_desc(gpio_legacy_no);
 
 	if (!led_desc) {
 		pr_err("gpio_to_desc() error%d\n",GPIO_21);
-		goto r_device;
+		ret = gpio_request(gpio_legacy_no, "led-gpio");
+		if (ret) {
+			pr_info("gpio_request() failed\n");
+			goto r_device;
+		}
+
+		led_desc = gpio_to_desc(gpio_legacy_no);
 	}
 
 
