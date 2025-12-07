@@ -13,7 +13,6 @@ static struct class *dev_class;
 static struct device *dev_device;
 static struct cdev   cdev_tmp;
 static struct gpio_desc *led_desc; 
-int gpio_legacy_no = 17;
 
 static ssize_t g_write(struct file *filp, const char __user *buf, size_t len, loff_t *offset)
 {
@@ -35,16 +34,16 @@ static ssize_t g_write(struct file *filp, const char __user *buf, size_t len, lo
 		pr_info("GPIO led off \n");
 	}
 	len = value;
-	return len;
+	return sizeof(value);
 }
 
 static ssize_t g_read(struct file *filp, char __user *buf, size_t len, loff_t *offset)
 {
 	uint8_t value = gpiod_get_value(led_desc);
 
-	if (!value) {
-		pr_err("value is null\n");
-		return -1;
+	if (!led_desc) {
+		pr_err("led_desc NULL \n");
+		return -ENODEV;
 	}	
 	if (copy_to_user(buf, &value , 1)) {
 		pr_info("copy_to_user() failed \n");
@@ -93,7 +92,6 @@ static int __init gpio_init(void)
 
 	/* gpio configurations */
 
-	ret = gpio_is_valid(GPIO_NO);
 	if (!gpio_is_valid(GPIO_NO)) {
 		pr_err("Invalid GPIO_%d\n",GPIO_NO);
 		goto r_device;
@@ -109,7 +107,7 @@ static int __init gpio_init(void)
 	led_desc = gpio_to_desc(GPIO_NO);
 
 	if (!led_desc) {
-		pr_err("gpio_to_desc() error%d\n",GPIO_21);
+		pr_err("gpio_to_desc() error%d\n",GPIO_NO);
 		goto r_gpio;
 	}
 
