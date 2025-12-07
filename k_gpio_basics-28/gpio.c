@@ -6,7 +6,7 @@
 #include <linux/cdev.h> 
 #include <linux/uaccess.h>
 #include <linux/gpio.h>
-#define GPIO_21 (21)
+#define GPIO_NO (17)
 
 dev_t dev;
 static struct class *dev_class;
@@ -41,12 +41,16 @@ static ssize_t g_write(struct file *filp, const char __user *buf, size_t len, lo
 static ssize_t g_read(struct file *filp, char __user *buf, size_t len, loff_t *offset)
 {
 	uint8_t value = gpiod_get_value(led_desc);
-	
+
+	if (!value) {
+		pr_err("value is null\n");
+		return -1;
+	}	
 	if (copy_to_user(buf, &value , 1)) {
 		pr_info("copy_to_user() failed \n");
 		return -1 ;
 	}
-	pr_info("GPIO_21: %d\n",value);
+	pr_info("GPIO_%d\n",value);
 	return 1;
 }
 
@@ -89,25 +93,40 @@ static int __init gpio_init(void)
 
 	/* gpio configurations */
 
-	led_desc = gpio_to_desc(gpio_legacy_no);
+	ret = gpio_is_valid(GPIO_NO);
+	if (!gpio_is_valid(GPIO_NO)) {
+		pr_err("Invalid GPIO_%d\n",GPIO_NO);
+		goto r_device;
+	}
+	
+
+	ret = gpio_request(GPIO_NO, "led_gpio");
+	if (ret) {
+		pr_err("gpio_request() error\n");
+		goto r_device;
+	}
+
+	led_desc = gpio_to_desc(GPIO_NO);
 
 	if (!led_desc) {
 		pr_err("gpio_to_desc() error%d\n",GPIO_21);
-		ret = gpio_request(gpio_legacy_no, "led-gpio");
-		if (ret) {
-			pr_info("gpio_request() failed\n");
-			goto r_device;
-		}
-
-		led_desc = gpio_to_desc(gpio_legacy_no);
+		goto r_gpio;
 	}
 
 
-	gpiod_direction_output(led_desc, 0);
+	ret = gpiod_direction_output(led_desc, 0);
+
+	if (ret) {
+		pr_err("gpiod_direction_output() error\n");
+		goto r_gpio;
+	}
+
 	gpiod_export(led_desc, false);
 	gpiod_export_link(NULL, "led", led_desc);
 
  	return 0;
+r_gpio:
+	gpio_free(GPIO_NO);
 r_device:
 	device_destroy(dev_class, dev);
 r_class:
@@ -123,6 +142,7 @@ static void __exit gpio_exit(void)
 {
 	gpiod_unexport(led_desc);
 	gpiod_put(led_desc);
+	gpio_free(GPIO_NO);
 	device_destroy(dev_class, dev);
 	class_destroy(dev_class);
 	cdev_del(&cdev_tmp);
