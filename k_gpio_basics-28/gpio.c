@@ -1,12 +1,16 @@
 #include <linux/gpio/consumer.h>
 #include <linux/fs.h>
+#include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/cdev.h> 
 #include <linux/uaccess.h>
 #include <linux/gpio.h>
-#define GPIO_NO (17)
+#define GPIO_NO (23)
+
+MODULE_SOFTDEP("pre : gpio_pl061 gpio_generic");
+MODULE_SOFTDEP("pre : gpio-raspberrypi-exp");
 
 dev_t dev;
 static struct class *dev_class;
@@ -92,15 +96,18 @@ static int __init gpio_init(void)
 
 	/* gpio configurations */
 
+	msleep(5000);
+
 	if (!gpio_is_valid(GPIO_NO)) {
 		pr_err("Invalid GPIO_%d\n",GPIO_NO);
 		goto r_device;
 	}
 	
+	ret = 0;
 
 	ret = gpio_request(GPIO_NO, "led_gpio");
 	if (ret) {
-		pr_err("gpio_request() error\n");
+		pr_err("gpio_request() error :%d\n", ret);
 		goto r_device;
 	}
 
@@ -149,7 +156,7 @@ static void __exit gpio_exit(void)
 }
 
 
-module_init(gpio_init);
+late_initcall(gpio_init);
 module_exit(gpio_exit);
 MODULE_DESCRIPTION("simple gpio module for led\n");
 MODULE_LICENSE("GPL");
